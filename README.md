@@ -1,4 +1,4 @@
-# cps_dragonfly_4_mobile_app
+# cps_dragonfly_mobile_app
 
 A new Flutter project.
 
