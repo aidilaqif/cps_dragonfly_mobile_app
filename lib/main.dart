@@ -1,4 +1,5 @@
-import 'package:cps_dragonfly_4_mobile_app/view/home_page.dart';
+import 'package:cps_dragonfly_4_mobile_app/pages/generate_code_page.dart';
+import 'package:cps_dragonfly_4_mobile_app/pages/scan_code_page.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -18,7 +19,11 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const HomePage(title: 'Flutter Demo Home Page'),
+      routes: {
+        "/generate": (context) => const GenerateCodePage(),
+        "/scan": (context) => const ScanCodePage(),
+      },
+      home: const ScanCodePage(),
     );
   }
 }
