@@ -1,11 +1,11 @@
 class ScanResult{
   final String value;
   final String type;
-  final DateTime timelog;
+  final DateTime timeLog;
 
   ScanResult({
     required this.value,
     required this.type,
-    required this.timelog
+    required this.timeLog
   });
 }

@@ -1,6 +1,10 @@
+import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
+import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
 import 'package:flutter/material.dart';
+
+import '../models/fg_pallet_label.dart';
 
 class ScanHistoryPage extends StatefulWidget {
   const ScanHistoryPage({super.key});
@@ -11,7 +15,7 @@ class ScanHistoryPage extends StatefulWidget {
 
 class _ScanHistoryPageState extends State<ScanHistoryPage> {
   final ScanService _scanService = ScanService();
-  String? _selectedType;
+  LabelType? _selectedType;
 
   @override
   Widget build(BuildContext context) {
@@ -29,13 +33,15 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
           children: [
             Padding(
               padding: const EdgeInsets.all(8.0),
-              child: DropdownButton<String>(
+              child: DropdownButton<LabelType?>(
                 value: _selectedType,
                 hint: const Text('Filter by type'),
-                items: const [
-                  DropdownMenuItem(value: null, child: Text('All')),
-                  DropdownMenuItem(value: 'qrCode', child: Text('QR Code')),
-                  DropdownMenuItem(value: 'barcode', child: Text('Barcode')),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('All')),
+                    ...LabelType.values.map((type) => DropdownMenuItem(
+                    value: type,
+                    child: Text(_getLabelTypeName(type)),
+                  )),
                 ],
                 onChanged: (value) {
                   setState(() {
@@ -49,9 +55,7 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
                 itemCount: sessions.length,
                 itemBuilder: (context, sessionIndex) {
                   final session = sessions[sessionIndex];
-                  final filteredScans = _selectedType == null
-                      ? session.scans
-                      : session.scans.where((scan) => scan.type == _selectedType).toList();
+                  final filteredScans = _getFilteredScans(session);
 
                   if (filteredScans.isEmpty) {
                     return const SizedBox.shrink();
@@ -78,12 +82,12 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Started: ${session.startTime.toString()}'),
-                          Text('Scans: ${filteredScans.length}'),
+                          Text('Scans: ${_getSessionScanCounts(session)}'),
                         ],
                       ),
                       children: filteredScans.map((scan) => ListTile(
-                        title: Text(scan.value),
-                        subtitle: Text('Type: ${scan.type}\nTime: ${scan.timelog}'),
+                        title: Text(_getScanDisplayText(scan)),
+                        subtitle: Text('Time: ${scan.timeLog}'),
                       )).toList(),
                     ),
                   );
@@ -95,4 +99,53 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
       },
     );
   }
+  String _getLabelTypeName(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return 'FG Pallet Label';
+      case LabelType.roll:
+        return 'Roll Label';
+      case LabelType.fgLocation:
+        return 'FG Location Label';
+      case LabelType.paperRollLocation:
+        return 'Paper Roll Location Label';
+    }
+  }
+
+  List<dynamic> _getFilteredScans(ScanSession session) {
+    if (_selectedType == null) return session.scans;
+
+    return session.scans.where((scan) {
+      switch (_selectedType!) {
+        case LabelType.fgPallet:
+          return scan is FGPalletLabel;
+        case LabelType.roll:
+          return scan is RollLabel;
+        default:
+          return false;
+      }
+    }).toList();
+  }
+
+  String _getScanDisplayText(dynamic scan) {
+    if (scan is FGPalletLabel) {
+      return 'FG Pallet - PLT#: ${scan.plateId}, WO: ${scan.workOrder}';
+    }
+    if (scan is RollLabel) {
+      return 'Roll - ID: ${scan.rollId}';
+    }
+    return 'Unknown Type';
+  }
+
+  String _getSessionScanCounts(ScanSession session) {
+    if (_selectedType != null) {
+      return '${session.scanCounts[_selectedType!]} ${_getLabelTypeName(_selectedType!)}';
+    }
+
+    return session.scanCounts.entries
+        .where((e) => e.value > 0)
+        .map((e) => '${e.value} ${_getLabelTypeName(e.key)}')
+        .join(', ');
+  }
 }
+
