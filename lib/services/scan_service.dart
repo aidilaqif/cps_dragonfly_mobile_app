@@ -7,7 +7,7 @@ class ScanService{
   factory ScanService() => _instance;
   ScanService._internal();
 
-  List<ScanSession> _sessions = [];
+  final List<ScanSession> _sessions = [];
   ScanSession? _currentSession;
   final _sessionController = StreamController<List<ScanSession>>.broadcast();
 
