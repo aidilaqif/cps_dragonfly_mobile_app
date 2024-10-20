@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:ffi';
-
 import 'package:cps_dragonfly_4_mobile_app/models/scan_result.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
 
