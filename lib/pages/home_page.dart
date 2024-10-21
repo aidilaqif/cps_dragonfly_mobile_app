@@ -12,6 +12,35 @@ class HomePage extends StatelessWidget {
 
   HomePage({super.key});
 
+  // Helper method to get unique identifier for each scan type
+  String _getUniqueId(dynamic scan){
+    if (scan is FGPalletLabel) return scan.plateId;
+    if (scan is RollLabel) return scan.rollId;
+    if (scan is FGLocationLabel) return scan.locationId;
+    if (scan is PaperRollLocationLabel) return scan.locationId;
+    return '';
+  }
+
+  // Helper method to get the latest scan for each unique item
+  List<Map<String, dynamic>> _getLatestUniqueScans(List<dynamic> scans){
+    final Map<String, Map<String, dynamic>> uniqueScans = {};
+
+    for (var scan in scans){
+      final uniqueId = _getUniqueId(scan);
+      if (uniqueId.isEmpty) continue;
+
+      if (!uniqueScans.containsKey(uniqueId) || scan.timeLog.isAfter(uniqueScans[uniqueId]!['scan'].timeLog)){
+        //Check if this is a rescan
+        final isRescan = uniqueScans.containsKey(uniqueId);
+        uniqueScans[uniqueId] = {
+          'scan': scan,
+          'isRescan': isRescan,
+        };
+      }
+    }
+    return uniqueScans.values.toList()
+      ..sort((a, b) => b['scan'].timeLog.compareTo(a['scan'].timeLog));
+  }
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ScanSession>>(
@@ -59,6 +88,7 @@ class HomePage extends StatelessWidget {
     String Function(dynamic) getDisplayText,
   ) {
     final scans = _scanService.getScansOfType(type);
+    final uniqueScans = _getLatestUniqueScans(scans);
     
     return Card(
       child: Padding(
@@ -66,40 +96,95 @@ class HomePage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  '${uniqueScans.length}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                  ),
+                )
+              ],
             ),
             const SizedBox(height: 8),
-            if (scans.isEmpty)
+            if (uniqueScans.isEmpty)
               const Text('No scans yet')
             else
-              ...scans.map((scan) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      getDisplayText(scan),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    Text(
-                      'Scanned: ${scan.timeLog.toString()}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
+              ...uniqueScans.map((scanData) {
+                final scan = scanData['scan'];
+                final isRescan = scanData['isRescan'];
+                
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: Colors.grey.withOpacity(0.2),
                       ),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    const Divider(),
-                  ],
-                ),
-              )),
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                getDisplayText(scan),
+                                style: const TextStyle(fontSize: 16),
+                              ),
+                            ),
+                            if (isRescan)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'Rescanned',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Last scan: ${_formatDateTime(scan.timeLog)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
           ],
         ),
       ),
     );
+  }
+  
+  String _formatDateTime(DateTime dateTime){
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }
