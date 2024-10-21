@@ -1,5 +1,7 @@
+import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/fg_pallet_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
+import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
@@ -31,6 +33,18 @@ class HomePage extends StatelessWidget {
                 'Roll Labels',
                 LabelType.roll,
                 (scan) => 'Roll ID: ${(scan as RollLabel).rollId}',
+              ),
+              const SizedBox(height: 20),
+              _buildLabelTypeSection(
+                'FG Location Labels',
+                LabelType.fgLocation,
+                (scan) => 'Location: ${(scan as FGLocationLabel).locationId}',
+              ),
+              const SizedBox(height: 20),
+              _buildLabelTypeSection(
+                'Paper Roll Location Labels',
+                LabelType.paperRollLocation,
+                (scan) => 'Location: ${(scan as PaperRollLocationLabel).locationId}',
               ),
             ],
           ),

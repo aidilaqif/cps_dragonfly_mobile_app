@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
+import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
@@ -160,6 +162,12 @@ class _ScanCodePageState extends State<ScanCodePage> {
     if (RollLabel.fromScanData(value) != null) {
       return LabelType.roll;
     }
+    if (FGLocationLabel.fromScanData(value) != null) {
+      return LabelType.fgLocation;
+    }
+    if (PaperRollLocationLabel.fromScanData(value) != null) {
+      return LabelType.paperRollLocation;
+    }
     return null;
   }
 
@@ -200,8 +208,29 @@ class _ScanCodePageState extends State<ScanCodePage> {
           ],
         );
       }
+    }else if (type == LabelType.fgLocation){
+      final label = FGLocationLabel.fromScanData(value);
+      if (label != null) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Label Type: ${_getLabelTypeName(type!)}'),
+            Text('Location ID: ${label.locationId}'),
+          ],
+        );
+      }
+    }else if (type == LabelType.paperRollLocation){
+      final label = PaperRollLocationLabel.fromScanData(value);
+      if (label != null) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Label Type: ${_getLabelTypeName(type!)}'),
+            Text('Location ID: ${label.locationId}'),
+          ],
+        );
+      }
     }
-    
     return Text('Raw Value: $value');
   }
 

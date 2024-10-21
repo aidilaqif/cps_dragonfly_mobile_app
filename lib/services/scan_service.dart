@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/fg_pallet_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
+import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
 
@@ -42,7 +44,7 @@ class ScanService{
     if (fgPalletLabel != null) {
       // Check if this plate ID already exists in current session
       if (isValueExistsInCurrentSession(value)) return false;
-      
+
       _currentSession!.addScan(fgPalletLabel, LabelType.fgPallet);
       _sessionController.add(_sessions);
       return true;
@@ -53,13 +55,34 @@ class ScanService{
     if (rollLabel != null) {
       // Check if this roll ID already exists in current session
       if (isValueExistsInCurrentSession(value)) return false;
-      
+
       _currentSession!.addScan(rollLabel, LabelType.roll);
       _sessionController.add(_sessions);
       return true;
     }
 
-    return false; // Unknown 
+    // Try parsing as FG Location Label
+    final fgLocationLabel = FGLocationLabel.fromScanData(value);
+    if (fgLocationLabel != null) {
+      // Check if this location ID already exists in current session
+      if (isValueExistsInCurrentSession(value)) return false;
+
+      _currentSession!.addScan(fgLocationLabel, LabelType.fgLocation);
+      _sessionController.add(_sessions);
+      return true;
+    }
+
+    // Try parsing as Paper Roll Location Label
+    final paperRollLocationLabel = PaperRollLocationLabel.fromScanData(value);
+    if (paperRollLocationLabel != null) {
+      // Check if this location ID already exists in current session
+      if (isValueExistsInCurrentSession(value)) return false;
+
+      _currentSession!.addScan(paperRollLocationLabel, LabelType.paperRollLocation);
+      _sessionController.add(_sessions);
+      return true;
+    }
+    return false; // Unknown
   }
   void endCurrentSession(){
     _currentSession = null;
@@ -69,6 +92,8 @@ class ScanService{
     return _currentSession!.scans.any((scan) {
       if (scan is FGPalletLabel) return scan.rawValue == value;
       if (scan is RollLabel) return scan.rollId == value;
+      if (scan is FGLocationLabel) return scan.locationId == value;
+      if (scan is PaperRollLocationLabel) return scan.locationId == value;
       return false;
     });
   }
@@ -78,6 +103,8 @@ class ScanService{
         .any((session) => session.scans.any((scan) {
               if (scan is FGPalletLabel) return scan.rawValue == value;
               if (scan is RollLabel) return scan.rollId == value;
+              if (scan is FGLocationLabel) return scan.locationId == value;
+              if (scan is PaperRollLocationLabel) return scan.locationId == value;
               return false;
             }));
   }
@@ -88,6 +115,10 @@ class ScanService{
           return scan is FGPalletLabel;
         case LabelType.roll:
           return scan is RollLabel;
+        case LabelType.fgLocation:
+          return scan is FGLocationLabel;
+        case LabelType.paperRollLocation:
+          return scan is PaperRollLocationLabel;
         default:
           return false;
       }
