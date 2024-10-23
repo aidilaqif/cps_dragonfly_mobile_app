@@ -17,4 +17,18 @@ class PaperRollLocationLabel {
       timeLog: DateTime.now(),
     );
   }
+
+  factory PaperRollLocationLabel.fromMap(Map<String, dynamic> data) {
+    return PaperRollLocationLabel(
+      locationId: data['location_id'],
+      timeLog: DateTime.parse(data['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'location_id': locationId,
+      'created_at': timeLog.toIso8601String(),
+    };
+  }
 }

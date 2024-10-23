@@ -1,197 +1,361 @@
-import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/fg_pallet_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
-import 'package:cps_dragonfly_4_mobile_app/widgets/export_to_csv_button.dart';
 import 'package:flutter/material.dart';
+import 'package:postgres/postgres.dart';
+import 'package:intl/intl.dart';
+import '../services/database_service.dart';
+import '../services/fg_pallet_label_service.dart';
+import '../services/roll_label_service.dart';
+import '../services/fg_location_label_service.dart';
+import '../services/paper_roll_location_label_service.dart';
+import '../models/fg_pallet_label.dart';
+import '../models/roll_label.dart';
+import '../models/fg_location_label.dart';
+import '../models/paper_roll_location_label.dart';
+import '../models/label_types.dart';
+import '../widgets/export_to_csv_button.dart';
 
-class HomePage extends StatelessWidget {
-  final ScanService _scanService = ScanService();
+class HomePage extends StatefulWidget {
+  final PostgreSQLConnection connection;
 
-  HomePage({super.key});
+  const HomePage({super.key, required this.connection});
 
-  // Helper method to get unique identifier for each scan type
-  String _getUniqueId(dynamic scan){
-    if (scan is FGPalletLabel) return scan.plateId;
-    if (scan is RollLabel) return scan.rollId;
-    if (scan is FGLocationLabel) return scan.locationId;
-    if (scan is PaperRollLocationLabel) return scan.locationId;
-    return '';
-  }
-
-  // Helper method to get the latest scan for each unique item
-  List<Map<String, dynamic>> _getLatestUniqueScans(List<dynamic> scans){
-    final Map<String, Map<String, dynamic>> uniqueScans = {};
-
-    for (var scan in scans){
-      final uniqueId = _getUniqueId(scan);
-      if (uniqueId.isEmpty) continue;
-
-      if (!uniqueScans.containsKey(uniqueId) || scan.timeLog.isAfter(uniqueScans[uniqueId]!['scan'].timeLog)){
-        //Check if this is a rescan
-        final isRescan = uniqueScans.containsKey(uniqueId);
-        uniqueScans[uniqueId] = {
-          'scan': scan,
-          'isRescan': isRescan,
-        };
-      }
-    }
-    return uniqueScans.values.toList()
-      ..sort((a, b) => b['scan'].timeLog.compareTo(a['scan'].timeLog));
-  }
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<ScanSession>>(
-      stream: _scanService.sessionsStream,
-      initialData: _scanService.sessions,
-      builder: (context, snapshot) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildLabelTypeSection(
-                'FG Pallet Labels',
-                LabelType.fgPallet,
-                (scan) => 'PLT#: ${(scan as FGPalletLabel).plateId}\nWO: ${scan.workOrder}',
-              ),
-              const SizedBox(height: 20),
-              _buildLabelTypeSection(
-                'Roll Labels',
-                LabelType.roll,
-                (scan) => 'Roll ID: ${(scan as RollLabel).rollId}',
-              ),
-              const SizedBox(height: 20),
-              _buildLabelTypeSection(
-                'FG Location Labels',
-                LabelType.fgLocation,
-                (scan) => 'Location: ${(scan as FGLocationLabel).locationId}',
-              ),
-              const SizedBox(height: 20),
-              _buildLabelTypeSection(
-                'Paper Roll Location Labels',
-                LabelType.paperRollLocation,
-                (scan) => 'Location: ${(scan as PaperRollLocationLabel).locationId}',
-              ),
-              const SizedBox(height: 20,),
-              const Center(
-                child: ExportToCsvButton()
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  late final FGPalletLabelService _fgPalletService;
+  late final RollLabelService _rollService;
+  late final FGLocationLabelService _fgLocationService;
+  late final PaperRollLocationLabelService _paperRollLocationService;
+  
+  bool _isLoading = true;
+  String? _error;
+  
+  Map<LabelType, List<dynamic>> _labelData = {};
+  Map<LabelType, bool> _isExpanded = {
+    LabelType.fgPallet: true,
+    LabelType.roll: true,
+    LabelType.fgLocation: true,
+    LabelType.paperRollLocation: true,
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeServices();
+    _loadData();
   }
 
-  Widget _buildLabelTypeSection(
-    String title,
-    LabelType type,
-    String Function(dynamic) getDisplayText,
-  ) {
-    final scans = _scanService.getScansOfType(type);
-    final uniqueScans = _getLatestUniqueScans(scans);
+  void _initializeServices() {
+    _fgPalletService = FGPalletLabelService(widget.connection);
+    _rollService = RollLabelService(widget.connection);
+    _fgLocationService = FGLocationLabelService(widget.connection);
+    _paperRollLocationService = PaperRollLocationLabelService(widget.connection);
+  }
+
+  Future<void> _loadData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      final futures = await Future.wait([
+        _fgPalletService.fetchLabels(),
+        _rollService.fetchLabels(),
+        _fgLocationService.fetchLabels(),
+        _paperRollLocationService.fetchLabels(),
+      ]);
+
+      setState(() {
+        _labelData = {
+          LabelType.fgPallet: futures[0],
+          LabelType.roll: futures[1],
+          LabelType.fgLocation: futures[2],
+          LabelType.paperRollLocation: futures[3],
+        };
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Error loading data: ${e.toString()}';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final formatter = DateFormat('MMM dd, yyyy HH:mm');
+    return formatter.format(dateTime);
+  }
+
+  Icon _getLabelTypeIcon(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return const Icon(Icons.inventory_2, color: Colors.blue);
+      case LabelType.roll:
+        return const Icon(Icons.rotate_right, color: Colors.green);
+      case LabelType.fgLocation:
+        return const Icon(Icons.location_on, color: Colors.orange);
+      case LabelType.paperRollLocation:
+        return const Icon(Icons.location_searching, color: Colors.purple);
+    }
+  }
+
+  String _getLabelTypeName(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return 'FG Pallet Labels';
+      case LabelType.roll:
+        return 'Roll Labels';
+      case LabelType.fgLocation:
+        return 'FG Location Labels';
+      case LabelType.paperRollLocation:
+        return 'Paper Roll Location Labels';
+    }
+  }
+
+  Widget _buildLabelCard(dynamic label, LabelType type) {
+    String title;
+    String? subtitle;
     
+    switch (type) {
+      case LabelType.fgPallet:
+        final fgLabel = label as FGPalletLabel;
+        title = 'PLT#: ${fgLabel.plateId}';
+        subtitle = 'WO: ${fgLabel.workOrder}';
+        break;
+      case LabelType.roll:
+        final rollLabel = label as RollLabel;
+        title = 'Roll ID: ${rollLabel.rollId}';
+        break;
+      case LabelType.fgLocation:
+        final locationLabel = label as FGLocationLabel;
+        title = 'Location: ${locationLabel.locationId}';
+        break;
+      case LabelType.paperRollLocation:
+        final locationLabel = label as PaperRollLocationLabel;
+        title = 'Location: ${locationLabel.locationId}';
+        break;
+    }
+
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      elevation: 1,
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: ListTile(
+        leading: _getLabelTypeIcon(type),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+            if (subtitle != null)
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 14,
                 ),
-                Text(
-                  '${uniqueScans.length}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
-                )
-              ],
+              ),
+            Text(
+              'Scanned: ${_formatDateTime(label.timeLog)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
             ),
-            const SizedBox(height: 8),
-            if (uniqueScans.isEmpty)
-              const Text('No scans yet')
-            else
-              ...uniqueScans.map((scanData) {
-                final scan = scanData['scan'];
-                final isRescan = scanData['isRescan'];
-                
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: Colors.grey.withOpacity(0.2),
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                getDisplayText(scan),
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ),
-                            if (isRescan)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  'Rescanned',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.blue,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Last scan: ${_formatDateTime(scan.timeLog)}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
           ],
         ),
       ),
     );
   }
-  
-  String _formatDateTime(DateTime dateTime){
-    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+
+  Widget _buildSectionHeader(LabelType type, List<dynamic> items) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _isExpanded[type] = !(_isExpanded[type] ?? false);
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            _getLabelTypeIcon(type),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _getLabelTypeName(type),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '${items.length} items',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              _isExpanded[type] ?? false
+                  ? Icons.expand_less
+                  : Icons.expand_more,
+              color: Colors.grey[600],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLabelTypeSection(LabelType type) {
+    final items = _labelData[type] ?? [];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(type, items),
+        if (_isExpanded[type] ?? false)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            child: Column(
+              children: [
+                if (items.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: Text(
+                        'No ${_getLabelTypeName(type)} scanned yet',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: items.length,
+                    itemBuilder: (context, index) => _buildLabelCard(items[index], type),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
+            const SizedBox(height: 16),
+            Text(
+              _error!,
+              style: TextStyle(color: Colors.red[700]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Summary Card
+              Card(
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Summary',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...LabelType.values.map((type) {
+                        final count = _labelData[type]?.length ?? 0;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              _getLabelTypeIcon(type),
+                              const SizedBox(width: 8),
+                              Text(
+                                '$count ${_getLabelTypeName(type)}',
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 16),
+                      const Center(child: ExportToCsvButton()),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Label Type Sections
+              ...LabelType.values.map((type) => Column(
+                children: [
+                  _buildLabelTypeSection(type),
+                  const SizedBox(height: 16),
+                ],
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
-
-

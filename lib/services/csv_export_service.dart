@@ -1,13 +1,17 @@
 import 'dart:io';
-import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/fg_pallet_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:excel/excel.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
 import 'package:intl/intl.dart';
+import '../models/fg_location_label.dart';
+import '../models/fg_pallet_label.dart';
+import '../models/paper_roll_location_label.dart';
+import '../models/roll_label.dart';
+import '../models/scan_session.dart';
+import '../models/label_types.dart';
+import '../services/fg_location_label_service.dart';
+import '../services/fg_pallet_label_service.dart';
+import '../services/paper_roll_location_label_service.dart';
+import '../services/roll_label_service.dart';
 
 class CsvExportService {
   static final CsvExportService _instance = CsvExportService._internal();
@@ -17,7 +21,7 @@ class CsvExportService {
   String _generateFileName(List<ScanSession> sessions, int? sessionIndex) {
     final dateFormat = DateFormat('yyyy_MM_dd_HHmm');
     final now = DateTime.now();
-    
+
     if (sessionIndex != null) {
       final session = sessions[sessionIndex];
       return 'Scan_Session_${sessionIndex + 1}_${dateFormat.format(session.startTime)}.xlsx';
@@ -36,10 +40,10 @@ class CsvExportService {
     int? sessionIndex,
   }) async {
     final excel = Excel.createExcel();
-    
+
     // Remove default sheet
     excel.delete('Sheet1');
-    
+
     // Create All Scans sheet
     final allScansSheet = excel['All Scans'];
     _createHeaderRow(allScansSheet, [
@@ -84,7 +88,7 @@ class CsvExportService {
     int allScansRow = 1;
     for (int sessionIdx = 0; sessionIdx < sessions.length; sessionIdx++) {
       if (sessionIndex != null && sessionIdx != sessionIndex) continue;
-      
+
       final session = sessions[sessionIdx];
       final scans = session.scans.where((scan) {
         final type = _getLabelType(scan);
@@ -94,7 +98,7 @@ class CsvExportService {
       for (var scan in scans) {
         final type = _getLabelType(scan);
         final isRescan = _checkIfRescan(scan, scans);
-        
+
         // Add to All Scans sheet
         _addDataRow(allScansSheet, allScansRow++, [
           'Session ${sessionIdx + 1}',
@@ -125,14 +129,11 @@ class CsvExportService {
       }
     }
 
-    // Add formulas for data linking
-    _linkSheets(excel, allScansSheet, typeSheets.values.toList(), sessionSheets.values.toList());
-
     // Save file
     final directory = await getApplicationDocumentsDirectory();
     final fileName = _generateFileName(sessions, sessionIndex);
     final file = File('${directory.path}/$fileName');
-    
+
     await file.writeAsBytes(excel.encode()!);
     return file.path;
   }
@@ -177,7 +178,7 @@ class CsvExportService {
   void _addTypeSpecificData(Sheet sheet, dynamic scan, int sessionNumber) {
     final rowIndex = sheet.maxRows;
     final type = _getLabelType(scan);
-    
+
     switch (type) {
       case LabelType.fgPallet:
         _addDataRow(sheet, rowIndex, [
@@ -206,26 +207,6 @@ class CsvExportService {
         ]);
         break;
     }
-  }
-
-  void _linkSheets(Excel excel, Sheet mainSheet, List<Sheet> typeSheets, List<Sheet> sessionSheets) {
-    // Add references to link data between sheets
-    for (var typeSheet in typeSheets) {
-      for (var row = 1; row < typeSheet.maxRows; row++) {
-        final mainSheetRow = _findCorrespondingRow(mainSheet, typeSheet, row);
-        if (mainSheetRow != -1) {
-          // Link relevant cells using Excel formulas
-          typeSheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row))
-            .setFormula('=\'All Scans\'!B$mainSheetRow');
-        }
-      }
-    }
-  }
-
-  int _findCorrespondingRow(Sheet mainSheet, Sheet typeSheet, int typeSheetRow) {
-    // Implementation to find matching row in main sheet
-    // Based on unique identifiers like scan time and ID
-    return -1; // Placeholder
   }
 
   String _formatDateTime(DateTime dateTime) {

@@ -2,25 +2,38 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
+import 'package:cps_dragonfly_4_mobile_app/services/fg_location_label_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/services/fg_pallet_label_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/services/paper_roll_location_label_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/services/roll_label_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/services/scan_session_service.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/fg_pallet_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
+import 'package:postgres/postgres.dart';
 
 class ScanCodePage extends StatefulWidget {
-  const ScanCodePage({super.key});
+  final PostgreSQLConnection connection;
+
+  const ScanCodePage({super.key, required this.connection});
 
   @override
   State<ScanCodePage> createState() => _ScanCodePageState();
 }
 
 class _ScanCodePageState extends State<ScanCodePage> {
-  final ScanService _scanService = ScanService();
+late final ScanSessionService _scanService;
+  late final FGPalletLabelService _fgPalletService;
+  late final RollLabelService _rollService;
+  late final FGLocationLabelService _fgLocationService;
+  late final PaperRollLocationLabelService _paperRollLocationService;
+  
   MobileScannerController? _controller;
   bool _isScanning = false;
+  bool _isProcessing = false;
 
   // State variables for feedback
   String? _lastScannedCode;
@@ -30,6 +43,37 @@ class _ScanCodePageState extends State<ScanCodePage> {
   Timer? _feedbackTimer;
   LabelType? _lastLabelType;
   DateTime _lastScanTime = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeServices();
+  }
+
+  void _initializeServices() {
+    _scanService = ScanSessionService(widget.connection);
+    _fgPalletService = FGPalletLabelService(widget.connection);
+    _rollService = RollLabelService(widget.connection);
+    _fgLocationService = FGLocationLabelService(widget.connection);
+    _paperRollLocationService = PaperRollLocationLabelService(widget.connection);
+  }
+
+  Future<void> _startNewSession() async {
+    try {
+      await _scanService.startNewSession();
+      if (mounted) {
+        Navigator.of(context).pop();
+        _startScanning();
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start session: ${e.toString()}')),
+        );
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -59,10 +103,12 @@ class _ScanCodePageState extends State<ScanCodePage> {
           actions: <Widget>[
             TextButton(
               child: const Text('New Session'),
-              onPressed: () {
-                _scanService.startNewSession();
-                Navigator.of(context).pop();
-                _startScanning();
+              onPressed: () async {
+                await _scanService.startNewSession();
+                if (mounted) {
+                  Navigator.of(context).pop();
+                  _startScanning();
+                }
               },
             ),
             if (_scanService.sessions.isNotEmpty)
@@ -98,7 +144,10 @@ class _ScanCodePageState extends State<ScanCodePage> {
     });
   }
 
-  void _processScannedCode(String value, Uint8List? image) {
+  Future<void> _processScannedCode(String value, Uint8List? image) async {
+    // Prevent processing if already handling a scan
+    if (_isProcessing) return;
+    
     // Prevent rapid-fire scanning of the same code
     if (_lastScannedCode == value && 
         DateTime.now().difference(_lastScanTime).inMilliseconds < 1000) {
@@ -106,46 +155,91 @@ class _ScanCodePageState extends State<ScanCodePage> {
     }
 
     setState(() {
+      _isProcessing = true;
       _lastScannedCode = value;
       _lastScannedImage = image;
       _lastScanTime = DateTime.now();
     });
 
-    // Check for duplicates in current session
-    if (_scanService.isValueExistsInCurrentSession(value)) {
-      _showFeedback('⚠️ Duplicate code in current session', const Color(0xFFFF9800));
-      return;
-    }
-
-    // Check if exists in other sessions
-    bool existsInOtherSessions = _scanService.isValueExistsInOtherSessions(value);
-
-    // Process the scanned code
-    bool processed = _scanService.addScan(value);
-    _lastLabelType = _getLabelTypeFromValue(value);
-
-    if (processed) {
-      if (existsInOtherSessions) {
-        _showFeedback('ℹ️ Code found in previous session', 
-            const Color(0xFF2196F3)); // Blue
-      } else {
-        _showFeedback('✅ Code successfully scanned', 
-            const Color(0xFF4CAF50)); // Green
+    try {
+      // Check for duplicates
+      if (_scanService.isValueExistsInCurrentSession(value)) {
+        _showFeedback('⚠️ Duplicate code in current session', const Color(0xFFFF9800));
+        return;
       }
-    } else {
-      _showFeedback('❌ Invalid code format', 
-          const Color(0xFFF44336)); // Red
+
+      final existsInOtherSessions = _scanService.isValueExistsInOtherSessions(value);
+      final sessionId = int.parse(_scanService.currentSession?.sessionId ?? '0');
+
+      // Try to parse and save the label
+      if (await _saveLabelToDatabase(value, sessionId)) {
+        if (existsInOtherSessions) {
+          _showFeedback('ℹ️ Code found in previous session', const Color(0xFF2196F3));
+        } else {
+          _showFeedback('✅ Code successfully scanned', const Color(0xFF4CAF50));
+        }
+      } else {
+        _showFeedback('❌ Invalid code format', const Color(0xFFF44336));
+      }
+    } catch (e) {
+      _showFeedback('❌ Error saving scan: ${e.toString()}', const Color(0xFFF44336));
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
+  Future<bool> _saveLabelToDatabase(String value, int sessionId) async {
+    // Try FG Pallet Label
+    final fgPalletLabel = FGPalletLabel.fromScanData(value);
+    if (fgPalletLabel != null) {
+      await _fgPalletService.insertLabel(fgPalletLabel, sessionId);
+      _scanService.currentSession?.addScan(fgPalletLabel, LabelType.fgPallet);
+      return true;
+    }
 
-  void _stopScanning() {
-    setState(() {
-      _controller?.dispose();
-      _controller = null;
-      _isScanning = false;
-    });
-    _scanService.endCurrentSession();
+    // Try Roll Label
+    final rollLabel = RollLabel.fromScanData(value);
+    if (rollLabel != null) {
+      await _rollService.insertLabel(rollLabel, sessionId);
+      _scanService.currentSession?.addScan(rollLabel, LabelType.roll);
+      return true;
+    }
+
+    // Try FG Location Label
+    final fgLocationLabel = FGLocationLabel.fromScanData(value);
+    if (fgLocationLabel != null) {
+      await _fgLocationService.insertLabel(fgLocationLabel, sessionId);
+      _scanService.currentSession?.addScan(fgLocationLabel, LabelType.fgLocation);
+      return true;
+    }
+
+    // Try Paper Roll Location Label
+    final paperRollLocationLabel = PaperRollLocationLabel.fromScanData(value);
+    if (paperRollLocationLabel != null) {
+      await _paperRollLocationService.insertLabel(paperRollLocationLabel, sessionId);
+      _scanService.currentSession?.addScan(paperRollLocationLabel, LabelType.paperRollLocation);
+      return true;
+    }
+
+    return false;
+  }
+
+
+  Future<void> _stopScanning() async {
+    try {
+      await _scanService.endCurrentSession();
+      setState(() {
+        _controller?.dispose();
+        _controller = null;
+        _isScanning = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error ending session: ${e.toString()}')),
+      );
+    }
   }
 
   @override
@@ -369,57 +463,3 @@ class _ScanCodePageState extends State<ScanCodePage> {
     return Text('Raw Value: $value');
   }
 }
-//   void _showResultDialog(
-//     String title,
-//     String value,
-//     LabelType? type,
-//     Uint8List? image, {
-//     bool isDuplicate = false,
-//     bool isInvalid = false,
-//   }) {
-//     showDialog(
-//       context: context,
-//       builder: (context) => AlertDialog(
-//         title: Text(
-//           title,
-//           style: TextStyle(
-//             color: isInvalid
-//                 ? Colors.red
-//                 : isDuplicate
-//                     ? Colors.orange
-//                     : Colors.green,
-//           ),
-//         ),
-//         content: SingleChildScrollView(
-//           child: Column(
-//             mainAxisSize: MainAxisSize.min,
-//             crossAxisAlignment: CrossAxisAlignment.start,
-//             children: [
-//               if (image != null)
-//                 Image.memory(
-//                   image,
-//                   height: 200,
-//                   width: 200,
-//                   fit: BoxFit.contain,
-//                 ),
-//               const SizedBox(height: 16),
-//               if (isInvalid)
-//                 const Text(
-//                   'The scanned code format is not recognized.',
-//                   style: TextStyle(color: Colors.red),
-//                 )
-//               else
-//                 _buildScanDetails(value, type),
-//             ],
-//           ),
-//         ),
-//         actions: [
-//           TextButton(
-//             onPressed: () => Navigator.pop(context),
-//             child: const Text('Continue Scanning'),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-// }

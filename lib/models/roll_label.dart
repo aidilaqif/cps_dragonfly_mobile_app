@@ -21,4 +21,18 @@ class RollLabel {
       timeLog: DateTime.now(),
     );
   }
+
+  factory RollLabel.fromMap(Map<String, dynamic> data) {
+    return RollLabel(
+      rollId: data['roll_id'],
+      timeLog: DateTime.parse(data['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'roll_id': rollId,
+      'created_at': timeLog.toIso8601String(),
+    };
+  }
 }

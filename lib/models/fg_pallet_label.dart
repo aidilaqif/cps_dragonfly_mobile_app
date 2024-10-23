@@ -30,4 +30,22 @@ class FGPalletLabel {
       return null;
     }
   }
+
+  factory FGPalletLabel.fromMap(Map<String, dynamic> data) {
+    return FGPalletLabel(
+      rawValue: data['raw_value'],
+      plateId: data['plate_id'],
+      workOrder: data['work_order'],
+      timeLog: DateTime.parse(data['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'raw_value': rawValue,
+      'plate_id': plateId,
+      'work_order': workOrder,
+      'created_at': timeLog.toIso8601String(),
+    };
+  }
 }

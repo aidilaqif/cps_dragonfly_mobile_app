@@ -17,8 +17,22 @@ class FGLocationLabel {
     if (!pattern.hasMatch(scanData)) return null;
 
     return FGLocationLabel(
-      locationId: scanData, // Convert to uppercase for consistency
+      locationId: scanData.toUpperCase(), // Convert to uppercase for consistency
       timeLog: DateTime.now(),
     );
+  }
+
+  factory FGLocationLabel.fromMap(Map<String, dynamic> data) {
+    return FGLocationLabel(
+      locationId: data['location_id'],
+      timeLog: DateTime.parse(data['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'location_id': locationId,
+      'created_at': timeLog.toIso8601String(),
+    };
   }
 }
