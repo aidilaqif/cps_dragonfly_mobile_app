@@ -5,6 +5,7 @@ import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart
 import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/widgets/export_to_csv_button.dart';
 import 'package:flutter/material.dart';
 
 class ScanHistoryPage extends StatefulWidget {
@@ -66,6 +67,7 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
                     margin: const EdgeInsets.all(8.0),
                     child: ExpansionTile(
                       title: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('Session ${sessionIndex + 1}'),
                           if (session == _scanService.currentSession)
@@ -77,6 +79,7 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
                                 labelStyle: TextStyle(color: Colors.white),
                               ),
                             ),
+                          const ExportToCsvButton()
                         ],
                       ),
                       subtitle: Column(

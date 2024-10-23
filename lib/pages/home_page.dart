@@ -5,6 +5,7 @@ import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart
 import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/scan_session.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/scan_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/widgets/export_to_csv_button.dart';
 import 'package:flutter/material.dart';
 
 class HomePage extends StatelessWidget {
@@ -74,6 +75,10 @@ class HomePage extends StatelessWidget {
                 'Paper Roll Location Labels',
                 LabelType.paperRollLocation,
                 (scan) => 'Location: ${(scan as PaperRollLocationLabel).locationId}',
+              ),
+              const SizedBox(height: 20,),
+              const Center(
+                child: ExportToCsvButton()
               ),
             ],
           ),
@@ -188,3 +193,5 @@ class HomePage extends StatelessWidget {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }
+
+
