@@ -12,23 +12,44 @@ class AppNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BottomNavigationBar(
-      currentIndex: currentIndex,
-      onTap: onTap,
-      items: const[
-        BottomNavigationBarItem(
-          icon: Icon(Icons.home),
-          label: "Home",
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
+          )
+        ]
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(20),
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.qr_code_scanner),
-          label: "Scan",
+        child: BottomNavigationBar(
+          currentIndex: currentIndex,
+          onTap: onTap,
+          selectedItemColor: Theme.of(context).colorScheme.primary,
+          unselectedItemColor: Colors.grey,
+          showSelectedLabels: true,
+          showUnselectedLabels: true,
+          type: BottomNavigationBarType.fixed,
+          items: const[
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_rounded),
+              label: "Home",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.qr_code_scanner_rounded),
+              label: "Scan",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.history_rounded),
+              label: "History",
+            ),
+          ],
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.history),
-          label: "History",
-        ),
-      ],
+      ),
     );
   }
 }

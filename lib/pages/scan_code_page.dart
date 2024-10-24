@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/fg_location_label_service.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/fg_pallet_label_service.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/paper_roll_location_label_service.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/roll_label_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/widgets/scan_feedback_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -253,119 +253,107 @@ late final ScanSessionService _scanService;
       );
     }
 
-    return Stack(
-      children: [
-        MobileScanner(
-          controller: _controller!,
-          onDetect: (capture) {
-            final List<Barcode> barcodes = capture.barcodes;
-            final image = capture.image;
-
-            if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-              _processScannedCode(barcodes.first.rawValue!, image);
-            }
-          },
-        ), // Enhanced feedback overlay
-        if (_feedbackMessage != null)
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 20,
-            left: 20,
-            right: 20,
-            child: Material(
-              elevation: 8,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 12,
-                  horizontal: 16,
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
+            children: [
+              SizedBox(
+                height: constraints.maxHeight,
+                width: constraints.maxWidth,
+                child: MobileScanner(
+                  controller: _controller!,
+                  onDetect: (capture) {
+                    final List<Barcode> barcodes = capture.barcodes;
+                    final image = capture.image;
+                    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                      _processScannedCode(barcodes.first.rawValue!, image);
+                    }
+                  },
                 ),
-                decoration: BoxDecoration(
-                  color: _feedbackColor,
-                  borderRadius: BorderRadius.circular(8),
+              ),
+              if (_feedbackMessage != null)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 20,
+                  left: 20,
+                  right: 20,
+                  child: ScanFeedbackOverlay(
+                    message: _feedbackMessage!,
+                    color: _feedbackColor,
+                  ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _feedbackMessage!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+              if (_lastScannedCode != null)
+                Positioned(
+                  bottom: 80,
+                  left: 20,
+                  right: 20,
+                  child: Material(
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      constraints: BoxConstraints(
+                        maxHeight: constraints.maxHeight * 0.3,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        // Enhanced last scan result panel
-        if (_lastScannedCode != null)
-          Positioned(
-            bottom: 80,
-            left: 20,
-            right: 20,
-            child: Material(
-              elevation: 8,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        if (_lastScannedImage != null)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.memory(
-                              _lastScannedImage!,
-                              height: 80,
-                              width: 80,
-                              fit: BoxFit.cover,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                if (_lastScannedImage != null)
+                                  SizedBox(
+                                    height: 80,
+                                    width: 80,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.memory(
+                                        _lastScannedImage!,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildScanDetails(_lastScannedCode!, _lastLabelType),
+                                ),
+                              ],
                             ),
-                          ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildScanDetails(_lastScannedCode!, _lastLabelType),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ],
+                  ),
+                ),
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: ElevatedButton.icon(
+                    onPressed: _stopScanning,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop Scanning'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 12,
+                      ),
+                      elevation: 4,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-
-        // Enhanced stop button
-        Positioned(
-          bottom: 20,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: ElevatedButton.icon(
-              onPressed: _stopScanning,
-              icon: const Icon(Icons.stop),
-              label: const Text('Stop Scanning'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 12,
-                ),
-                elevation: 4,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+            ],
+          );
+        },
+      );
+    }
   }
   
 
@@ -462,4 +450,3 @@ late final ScanSessionService _scanService;
     }
     return Text('Raw Value: $value');
   }
-}
