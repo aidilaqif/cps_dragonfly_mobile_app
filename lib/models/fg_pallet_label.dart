@@ -8,15 +8,11 @@ class FGPalletLabel extends BaseLabel {
   FGPalletLabel({
     required this.plateId,
     required this.workOrder,
-    required DateTime timeLog,
+    required DateTime checkIn,
     required this.rawValue,
-    bool isRescan = false,
-    String? sessionId,
     Map<String, dynamic>? metadata,
   }) : super(
-    timeLog: timeLog,
-    isRescan: isRescan,
-    sessionId: sessionId,
+    checkIn: checkIn,
     metadata: metadata,
   );
 
@@ -33,7 +29,7 @@ class FGPalletLabel extends BaseLabel {
         rawValue: scanData,
         plateId: plateId,
         workOrder: workOrder,
-        timeLog: DateTime.now(),
+        checkIn: DateTime.now(),
       );
     } catch (e) {
       return null;
@@ -55,9 +51,7 @@ class FGPalletLabel extends BaseLabel {
       plateId: data['plate_id'],
       workOrder: data['work_order'],
       rawValue: data['raw_value'],
-      timeLog: DateTime.parse(data['timelog']),
-      isRescan: data['is_rescan'] ?? false,
-      sessionId: data['session_id'],
+      checkIn: DateTime.parse(data['check_in']),
       metadata: data['metadata'],
     );
   }

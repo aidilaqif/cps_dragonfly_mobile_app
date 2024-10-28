@@ -5,14 +5,10 @@ class PaperRollLocationLabel extends BaseLabel {
 
   PaperRollLocationLabel({
     required this.locationId,
-    required DateTime timeLog,
-    bool isRescan = false,
-    String? sessionId,
+    required DateTime checkIn,
     Map<String, dynamic>? metadata,
   }) : super(
-    timeLog: timeLog,
-    isRescan: isRescan,
-    sessionId: sessionId,
+    checkIn: checkIn,
     metadata: metadata,
   );
 
@@ -25,7 +21,7 @@ class PaperRollLocationLabel extends BaseLabel {
 
     return PaperRollLocationLabel(
       locationId: scanData,
-      timeLog: DateTime.now(),
+      checkIn: DateTime.now(),
     );
   }
 
@@ -42,9 +38,7 @@ class PaperRollLocationLabel extends BaseLabel {
   factory PaperRollLocationLabel.fromMap(Map<String, dynamic> data) {
     return PaperRollLocationLabel(
       locationId: data['location_id'],
-      timeLog: DateTime.parse(data['timelog']),
-      isRescan: data['is_rescan'] ?? false,
-      sessionId: data['session_id'],
+      checkIn: DateTime.parse(data['check_in']),
       metadata: data['metadata'],
     );
   }

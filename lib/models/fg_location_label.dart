@@ -5,14 +5,10 @@ class FGLocationLabel extends BaseLabel {
 
   FGLocationLabel({
     required this.locationId,
-    required DateTime timeLog,
-    bool isRescan = false,
-    String? sessionId,
+    required DateTime checkIn,
     Map<String, dynamic>? metadata,
   }) : super(
-    timeLog: timeLog,
-    isRescan: isRescan,
-    sessionId: sessionId,
+    checkIn: checkIn,
     metadata: metadata,
   );
 
@@ -33,7 +29,7 @@ class FGLocationLabel extends BaseLabel {
 
     return FGLocationLabel(
       locationId: scanData.toUpperCase(),
-      timeLog: DateTime.now(),
+      checkIn: DateTime.now(),
     );
   }
 
@@ -49,9 +45,7 @@ class FGLocationLabel extends BaseLabel {
   factory FGLocationLabel.fromMap(Map<String, dynamic> data) {
     return FGLocationLabel(
       locationId: data['location_id'],
-      timeLog: DateTime.parse(data['timelog']),
-      isRescan: data['is_rescan'] ?? false,
-      sessionId: data['session_id'],
+      checkIn: DateTime.parse(data['check_in']),
       metadata: data['metadata'],
     );
   }

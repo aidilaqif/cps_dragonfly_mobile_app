@@ -6,7 +6,6 @@ import '../models/fg_location_label.dart';
 import '../models/fg_pallet_label.dart';
 import '../models/paper_roll_location_label.dart';
 import '../models/roll_label.dart';
-import '../models/scan_session.dart';
 import '../models/label_types.dart';
 
 class CsvExportService {
@@ -14,87 +13,66 @@ class CsvExportService {
   factory CsvExportService() => _instance;
   CsvExportService._internal();
 
-  String _generateFileName(List<ScanSession> sessions, int? sessionIndex) {
+  String _generateFileName() {
     final dateFormat = DateFormat('yyyy_MM_dd_HHmm');
     final now = DateTime.now();
-
-    if (sessionIndex != null) {
-      final session = sessions[sessionIndex];
-      return 'Scan_Session_${sessionIndex + 1}_${dateFormat.format(session.startTime)}.xlsx';
-    } else if (sessions.length == 1) {
-      return 'Current_Session_Scans_${dateFormat.format(now)}.xlsx';
-    } else {
-      final startDate = sessions.first.startTime;
-      final endDate = sessions.last.startTime;
-      return 'All_Sessions_${dateFormat.format(startDate)}_to_${dateFormat.format(endDate)}.xlsx';
-    }
+    return 'Scan_Data_Export_${dateFormat.format(now)}.xlsx';
   }
 
   Future<String> exportToExcel({
-    required List<ScanSession> sessions,
+    required List<dynamic> data,
     List<LabelType>? filterTypes,
-    int? sessionIndex,
   }) async {
     final excel = Excel.createExcel();
     excel.delete('Sheet1');
 
-    // Create All Scans sheet
-    final allScansSheet = excel['All Scans'];
-    _createAllScansSheet(allScansSheet, sessions, filterTypes);
-
     // Create type-specific sheets
     for (var type in LabelType.values) {
       if (filterTypes == null || filterTypes.contains(type)) {
-        final sheet = excel[_getLabelTypeName(type)];
-        _createTypeSpecificSheet(sheet, type, sessions);
+        final typeData = data.where((scan) => _getScanType(scan) == type).toList();
+        if (typeData.isNotEmpty) {
+          final sheet = excel[_getLabelTypeName(type)];
+          _createTypeSpecificSheet(sheet, typeData);
+        }
       }
     }
 
+    // Create All Scans sheet
+    final allScansSheet = excel['All Scans'];
+    _createAllScansSheet(allScansSheet, data);
+
     // Save file
     final directory = await getApplicationDocumentsDirectory();
-    final fileName = _generateFileName(sessions, sessionIndex);
+    final fileName = _generateFileName();
     final file = File('${directory.path}/$fileName');
     await file.writeAsBytes(excel.encode()!);
     return file.path;
   }
 
-  void _createAllScansSheet(Sheet sheet, List<ScanSession> sessions, List<LabelType>? filterTypes) {
+  void _createAllScansSheet(Sheet sheet, List<dynamic> data) {
     // Create headers
     _createHeaderRow(sheet, [
-      'Session',
       'Scan Time',
       'Label Type',
       'ID',
       'Additional Info',
-      'Is Rescan',
-      'Session ID',
     ]);
 
     int row = 1;
-    for (int sessionIdx = 0; sessionIdx < sessions.length; sessionIdx++) {
-      final session = sessions[sessionIdx];
-      final scans = session.scans.where((scan) {
-        final type = _getLabelType(scan);
-        return filterTypes?.contains(type) ?? true;
-      }).toList();
-
-      for (var scan in scans) {
-        _addScanRow(sheet, row++, scan, sessionIdx + 1, session.sessionId);
-      }
+    for (var scan in data) {
+      _addScanRow(sheet, row++, scan);
     }
   }
 
-  void _createTypeSpecificSheet(Sheet sheet, LabelType type, List<ScanSession> sessions) {
-    final headers = _getTypeSpecificHeaders(type);
+  void _createTypeSpecificSheet(Sheet sheet, List<dynamic> data) {
+    if (data.isEmpty) return;
+
+    final headers = _getTypeSpecificHeaders(data.first);
     _createHeaderRow(sheet, headers);
 
     int row = 1;
-    for (var session in sessions) {
-      for (var scan in session.scans) {
-        if (_getLabelType(scan) == type) {
-          _addTypeSpecificRow(sheet, row++, scan, type, session.sessionId);
-        }
-      }
+    for (var scan in data) {
+      _addTypeSpecificRow(sheet, row++, scan);
     }
   }
 
@@ -106,70 +84,57 @@ class CsvExportService {
     }
   }
 
-  void _addScanRow(Sheet sheet, int row, dynamic scan, int sessionNumber, String sessionId) {
-    final type = _getLabelType(scan);
+  void _addScanRow(Sheet sheet, int row, dynamic scan) {
+    final type = _getScanType(scan);
     final data = [
-      'Session $sessionNumber',
-      _formatDateTime(scan.timeLog),
+      _formatDateTime(scan.checkIn),
       _getLabelTypeName(type),
       _getScanId(scan),
       _getAdditionalInfo(scan),
-      scan.isRescan.toString(),
-      sessionId,
     ];
 
     _addDataRow(sheet, row, data);
   }
 
-  void _addTypeSpecificRow(Sheet sheet, int row, dynamic scan, LabelType type, String sessionId) {
+  void _addTypeSpecificRow(Sheet sheet, int row, dynamic scan) {
     List<dynamic> data;
 
-    switch (type) {
-      case LabelType.fgPallet:
-        final palletLabel = scan as FGPalletLabel;
-        data = [
-          _formatDateTime(palletLabel.timeLog),
-          palletLabel.plateId,
-          palletLabel.workOrder,
-          palletLabel.isRescan.toString(),
-          sessionId,
-        ];
-        break;
-
-      case LabelType.roll:
-        final rollLabel = scan as RollLabel;
-        data = [
-          _formatDateTime(rollLabel.timeLog),
-          rollLabel.rollId,
-          rollLabel.isRescan.toString(),
-          sessionId,
-        ];
-        break;
-
-      case LabelType.fgLocation:
-      case LabelType.paperRollLocation:
-        final locationLabel = scan as dynamic;
-        data = [
-          _formatDateTime(locationLabel.timeLog),
-          locationLabel.locationId,
-          locationLabel.isRescan.toString(),
-          sessionId,
-        ];
-        break;
+    if (scan is FGPalletLabel) {
+      data = [
+        _formatDateTime(scan.checkIn),
+        scan.plateId,
+        scan.workOrder,
+        scan.rawValue,
+      ];
+    } else if (scan is RollLabel) {
+      data = [
+        _formatDateTime(scan.checkIn),
+        scan.rollId,
+        scan.batchNumber,
+        scan.sequenceNumber,
+      ];
+    } else {
+      // Location labels (both types)
+      final locationLabel = scan as dynamic;
+      data = [
+        _formatDateTime(scan.checkIn),
+        locationLabel.locationId,
+        scan is FGLocationLabel ? locationLabel.areaType : locationLabel.rowNumber,
+      ];
     }
 
     _addDataRow(sheet, row, data);
   }
 
-  List<String> _getTypeSpecificHeaders(LabelType type) {
-    switch (type) {
-      case LabelType.fgPallet:
-        return ['Scan Time', 'Plate ID', 'Work Order', 'Is Rescan', 'Session ID'];
-      case LabelType.roll:
-        return ['Scan Time', 'Roll ID', 'Is Rescan', 'Session ID'];
-      case LabelType.fgLocation:
-      case LabelType.paperRollLocation:
-        return ['Scan Time', 'Location ID', 'Is Rescan', 'Session ID'];
+  List<String> _getTypeSpecificHeaders(dynamic scan) {
+    if (scan is FGPalletLabel) {
+      return ['Scan Time', 'Plate ID', 'Work Order', 'Raw Value'];
+    } else if (scan is RollLabel) {
+      return ['Scan Time', 'Roll ID', 'Batch Number', 'Sequence Number'];
+    } else if (scan is FGLocationLabel) {
+      return ['Scan Time', 'Location ID', 'Area Type'];
+    } else {
+      return ['Scan Time', 'Location ID', 'Row Number'];
     }
   }
 
@@ -184,7 +149,7 @@ class CsvExportService {
     return DateFormat('yyyy-MM-dd HH:mm:ss').format(dateTime);
   }
 
-  LabelType _getLabelType(dynamic scan) {
+  LabelType _getScanType(dynamic scan) {
     if (scan is FGPalletLabel) return LabelType.fgPallet;
     if (scan is RollLabel) return LabelType.roll;
     if (scan is FGLocationLabel) return LabelType.fgLocation;
@@ -195,13 +160,13 @@ class CsvExportService {
   String _getLabelTypeName(LabelType type) {
     switch (type) {
       case LabelType.fgPallet:
-        return 'FG Pallet Label';
+        return 'FG Pallet Labels';
       case LabelType.roll:
-        return 'Roll Label';
+        return 'Roll Labels';
       case LabelType.fgLocation:
-        return 'FG Location Label';
+        return 'FG Location Labels';
       case LabelType.paperRollLocation:
-        return 'Paper Roll Location Label';
+        return 'Paper Roll Location Labels';
     }
   }
 
@@ -214,7 +179,15 @@ class CsvExportService {
   }
 
   String _getAdditionalInfo(dynamic scan) {
-    if (scan is FGPalletLabel) return 'Work Order: ${scan.workOrder}';
+    if (scan is FGPalletLabel) {
+      return 'Work Order: ${scan.workOrder}, Raw Value: ${scan.rawValue}';
+    } else if (scan is RollLabel) {
+      return 'Batch: ${scan.batchNumber}, Sequence: ${scan.sequenceNumber}';
+    } else if (scan is FGLocationLabel) {
+      return 'Area Type: ${scan.areaType}';
+    } else if (scan is PaperRollLocationLabel) {
+      return 'Row: ${scan.rowNumber}, Position: ${scan.positionNumber}';
+    }
     return '';
   }
 }

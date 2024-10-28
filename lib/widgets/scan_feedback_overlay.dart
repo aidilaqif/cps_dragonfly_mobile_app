@@ -1,14 +1,15 @@
-// Animated scan feedback overlay
 import 'package:flutter/material.dart';
 
 class ScanFeedbackOverlay extends StatelessWidget {
   final String message;
   final Color color;
+  final IconData? icon;
 
   const ScanFeedbackOverlay({
     super.key,
     required this.message,
     required this.color,
+    this.icon,
   });
 
   @override
@@ -33,7 +34,7 @@ class ScanFeedbackOverlay extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            color == Colors.green ? Icons.check_circle : Icons.error,
+            icon ?? (color == Colors.green ? Icons.check_circle : Icons.info_outline),
             color: Colors.white,
             size: 24,
           ),
