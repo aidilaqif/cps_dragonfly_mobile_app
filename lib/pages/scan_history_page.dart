@@ -237,24 +237,204 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
     return 'Scan Details';
   }
 
-  Widget _buildDateGroupHeader(DateTime date) {
+  Widget _buildFilterSection() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.grey[100],
-      child: Text(
-        DateFormat('EEEE, MMMM d, yyyy').format(date),
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[700],
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(20),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.filter_list,
+                color: Theme.of(context).primaryColor,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Filter Scan History',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).primaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          DateRangeSelector(
+            selectedRange: _selectedDateRange,
+            onRangeSelected: (range) {
+              setState(() => _selectedDateRange = range);
+              _loadScans();
+            },
+            onClearRange: () {
+              setState(() => _selectedDateRange = null);
+              _loadScans();
+            },
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            onChanged: (value) => setState(() => _searchQuery = value),
+            style: const TextStyle(fontSize: 16),
+            decoration: InputDecoration(
+              hintText: 'Search scans...',
+              prefixIcon: Icon(
+                Icons.search,
+                color: Theme.of(context).primaryColor,
+              ),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => _searchQuery = ''),
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).primaryColor.withOpacity(0.5),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Colors.grey.withOpacity(0.3),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).primaryColor,
+                  width: 2,
+                ),
+              ),
+              filled: true,
+              fillColor: Colors.grey.withOpacity(0.05),
+            ),
+          ),
+          const SizedBox(height: 16),
+          LabelTypeFilter(
+            selectedTypes: _selectedTypes,
+            onTypesChanged: (types) {
+              setState(() => _selectedTypes = types);
+              _loadScans();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateGroupHeader(DateTime date) {
+    final isToday = DateTime.now().difference(date).inDays == 0;
+    final isYesterday = DateTime.now().difference(date).inDays == 1;
+    
+    String dateText;
+    if (isToday) {
+      dateText = 'Today';
+    } else if (isYesterday) {
+      dateText = 'Yesterday';
+    } else {
+      dateText = DateFormat('EEEE, MMMM d, yyyy').format(date);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: Border(
+          bottom: BorderSide(
+            color: Colors.grey.withOpacity(0.2),
+          ),
         ),
       ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.calendar_today,
+            size: 16,
+            color: Theme.of(context).primaryColor,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            dateText,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScansList() {
+    final filteredScans = _getFilteredScans();
+    
+    // Group scans by date
+    final groupedScans = <DateTime, List<dynamic>>{};
+    for (var scan in filteredScans) {
+      final date = DateTime(
+        scan.checkIn.year,
+        scan.checkIn.month,
+        scan.checkIn.day,
+      );
+      groupedScans.putIfAbsent(date, () => []).add(scan);
+    }
+
+    final dates = groupedScans.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    return ListView.builder(
+      padding: EdgeInsets.zero,
+      itemCount: dates.length,
+      itemBuilder: (context, index) {
+        final date = dates[index];
+        final scans = groupedScans[date]!;
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDateGroupHeader(date),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: scans.length,
+              itemBuilder: (context, index) {
+                final scan = scans[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: _buildScanItem(scan),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
     }
 
     if (_error != null) {
@@ -265,7 +445,7 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
     }
 
     final filteredScans = _getFilteredScans();
-    
+
     if (filteredScans.isEmpty) {
       return EmptyState(
         message: 'No scans found${_selectedDateRange != null ? ' in selected date range' : ''}',
@@ -285,83 +465,38 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
       groupedScans.putIfAbsent(date, () => []).add(scan);
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              DateRangeSelector(
-                selectedRange: _selectedDateRange,
-                onRangeSelected: (range) {
-                  setState(() => _selectedDateRange = range);
-                  _loadScans();
-                },
-                onClearRange: () {
-                  setState(() => _selectedDateRange = null);
-                  _loadScans();
-                },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                onChanged: (value) => setState(() => _searchQuery = value),
-                decoration: InputDecoration(
-                  hintText: 'Search scans...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () => setState(() => _searchQuery = ''),
-                        )
-                      : null,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              LabelTypeFilter(
-                selectedTypes: _selectedTypes,
-                onTypesChanged: (types) {
-                  setState(() => _selectedTypes = types);
-                  _loadScans();
-                },
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _loadScans,
-            child: ListView.builder(
-              itemCount: groupedScans.length * 2, // Multiply by 2 for headers
-              itemBuilder: (context, index) {
-                final dates = groupedScans.keys.toList()
-                  ..sort((a, b) => b.compareTo(a));
-                
-                if (index.isEven) {
-                  // Header
-                  final date = dates[index ~/ 2];
-                  return _buildDateGroupHeader(date);
-                } else {
-                  // Scans for the date
-                  final date = dates[index ~/ 2];
-                  final scans = groupedScans[date]!;
-                  return Column(
-                    children: scans.map(_buildScanItem).toList(),
-                  );
-                }
-              },
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Column(
+        children: [
+          _buildFilterSection(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadScans,
+              child: _buildScansList(),
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: ExportToExcelButton(
-            startDate: _selectedDateRange?.start,
-            endDate: _selectedDateRange?.end,
-            filterTypes: _selectedTypes,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  spreadRadius: 1,
+                  blurRadius: 5,
+                  offset: const Offset(0, -2)
+                ),
+              ],
+            ),
+            child: ExportToExcelButton(
+              startDate: _selectedDateRange?.start,
+              endDate: _selectedDateRange?.end,
+              filterTypes: _selectedTypes,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
