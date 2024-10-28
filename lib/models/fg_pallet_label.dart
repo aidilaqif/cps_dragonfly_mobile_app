@@ -1,15 +1,24 @@
-class FGPalletLabel {
-  final String rawValue;
+import 'package:cps_dragonfly_4_mobile_app/models/base_label.dart';
+
+class FGPalletLabel extends BaseLabel {
   final String plateId;
   final String workOrder;
-  final DateTime timeLog;
+  final String rawValue;
 
   FGPalletLabel({
-    required this.rawValue,
     required this.plateId,
     required this.workOrder,
-    required this.timeLog,
-  });
+    required DateTime timeLog,
+    required this.rawValue,
+    bool isRescan = false,
+    String? sessionId,
+    Map<String, dynamic>? metadata,
+  }) : super(
+    timeLog: timeLog,
+    isRescan: isRescan,
+    sessionId: sessionId,
+    metadata: metadata,
+  );
 
   // Parse the scanned value into FGPalletLabel object
   static FGPalletLabel? fromScanData(String scanData) {
@@ -31,21 +40,25 @@ class FGPalletLabel {
     }
   }
 
-  factory FGPalletLabel.fromMap(Map<String, dynamic> data) {
-    return FGPalletLabel(
-      rawValue: data['raw_value'],
-      plateId: data['plate_id'],
-      workOrder: data['work_order'],
-      timeLog: DateTime.parse(data['created_at']),
-    );
-  }
-
+  @override
   Map<String, dynamic> toMap() {
     return {
-      'raw_value': rawValue,
+      ...super.toMap(),
       'plate_id': plateId,
       'work_order': workOrder,
-      'created_at': timeLog.toIso8601String(),
+      'raw_value': rawValue,
     };
+  }
+
+  factory FGPalletLabel.fromMap(Map<String, dynamic> data) {
+    return FGPalletLabel(
+      plateId: data['plate_id'],
+      workOrder: data['work_order'],
+      rawValue: data['raw_value'],
+      timeLog: DateTime.parse(data['timelog']),
+      isRescan: data['is_rescan'] ?? false,
+      sessionId: data['session_id'],
+      metadata: data['metadata'],
+    );
   }
 }

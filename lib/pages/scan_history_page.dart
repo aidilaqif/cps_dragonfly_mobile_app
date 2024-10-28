@@ -25,6 +25,7 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
   bool _isLoading = true;
   String? _error;
   List<ScanSession> _sessions = [];
+  bool _showRescanOnly = false; // New filter for rescans
 
   @override
   void initState() {
@@ -117,7 +118,7 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
     return counts.isEmpty ? 'No scans' : counts;
   }
 
-  Widget _buildScanItem(dynamic scan) {
+  Widget _buildScanItem(dynamic scan, bool isRescan) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       child: ListTile(
@@ -128,17 +129,56 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        subtitle: Text(
-          'Scanned at: ${_formatDateTime(scan.timeLog)}',
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Scanned at: ${_formatDateTime(scan.timeLog)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+            if (isRescan)
+              Text(
+                'Rescan',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.orange[800],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
         ),
-        trailing: _getScanTypeIcon(scan),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isRescan)
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.orange[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Rescan',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange[800],
+                  ),
+                ),
+              ),
+            _getScanTypeIcon(scan),
+          ],
+        ),
       ),
     );
   }
+
 
   Icon _getScanTypeIcon(dynamic scan) {
     if (scan is FGPalletLabel) {
@@ -158,6 +198,17 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
     
     if (filteredScans.isEmpty) {
       return const SizedBox.shrink();
+    }
+
+    // Count new scans and rescans
+    int newScans = 0;
+    int rescans = 0;
+    for (var scan in filteredScans) {
+      if (_isRescan(scan, session)) {
+        rescans++;
+      } else {
+        newScans++;
+      }
     }
 
     return Card(
@@ -199,12 +250,24 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
               'Started: ${_formatDateTime(session.startTime)}',
               style: const TextStyle(fontSize: 12),
             ),
-            Text(
-              _getSessionScanCounts(session),
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
+            Row(
+              children: [
+                Text(
+                  'New Scans: $newScans',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Rescans: $rescans',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange[800],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -224,12 +287,54 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: filteredScans.length,
-            itemBuilder: (context, index) => _buildScanItem(filteredScans[index]),
+            itemBuilder: (context, index) {
+              final scan = filteredScans[index];
+              final isRescan = _isRescan(scan, session);
+              return _buildScanItem(scan, isRescan);
+            },
           ),
           const SizedBox(height: 8),
         ],
       ),
     );
+  }
+
+  bool _isRescan(dynamic scan, ScanSession session) {
+    String scanId = _getScanId(scan);
+    // Check if this scan appears earlier in the same session or in previous sessions
+    bool foundEarlier = false;
+    
+    // Check in current session
+    for (var existingScan in session.scans) {
+      if (_getScanId(existingScan) == scanId && existingScan.timeLog.isBefore(scan.timeLog)) {
+        foundEarlier = true;
+        break;
+      }
+    }
+    
+    // Check in previous sessions if not found in current
+    if (!foundEarlier) {
+      for (var prevSession in _sessions) {
+        if (prevSession == session) break; // Stop at current session
+        for (var existingScan in prevSession.scans) {
+          if (_getScanId(existingScan) == scanId) {
+            foundEarlier = true;
+            break;
+          }
+        }
+        if (foundEarlier) break;
+      }
+    }
+    
+    return foundEarlier;
+  }
+
+  String _getScanId(dynamic scan) {
+    if (scan is FGPalletLabel) return scan.rawValue;
+    if (scan is RollLabel) return scan.rollId;
+    if (scan is FGLocationLabel) return scan.locationId;
+    if (scan is PaperRollLocationLabel) return scan.locationId;
+    return '';
   }
 
   @override
@@ -240,43 +345,21 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
 
     if (_error != null) {
       return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                style: TextStyle(color: Colors.red[700]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _loadSessions,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_sessions.isEmpty) {
-      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.history, size: 48, color: Colors.grey[400]),
+            Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
             const SizedBox(height: 16),
             Text(
-              'No scan history',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey[600],
-              ),
+              _error!,
+              style: TextStyle(color: Colors.red[700]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _loadSessions,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
             ),
           ],
         ),
@@ -285,13 +368,13 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
 
     return RefreshIndicator(
       onRefresh: _loadSessions,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: Row(
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Row(
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<LabelType?>(
@@ -322,17 +405,28 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
                     ),
                   ],
                 ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _sessions.length,
-                  itemBuilder: (context, index) =>
-                      _buildSessionCard(_sessions[index], index),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Show Rescans Only'),
+                  value: _showRescanOnly,
+                  onChanged: (value) {
+                    setState(() {
+                      _showRescanOnly = value;
+                    });
+                  },
+                  dense: true,
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _sessions.length,
+              itemBuilder: (context, index) =>
+                  _buildSessionCard(_sessions[index], index),
+            ),
+          ),
+        ],
       ),
     );
   }

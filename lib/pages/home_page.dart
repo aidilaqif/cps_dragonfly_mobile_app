@@ -29,14 +29,12 @@ class _HomePageState extends State<HomePage> {
   
   bool _isLoading = true;
   String? _error;
-  
-  Map<LabelType, List<dynamic>> _labelData = {};
+  String _searchQuery = '';
+  DateTimeRange? _selectedDateRange;
   Map<LabelType, bool> _isExpanded = {
-    LabelType.fgPallet: true,
-    LabelType.roll: true,
-    LabelType.fgLocation: true,
-    LabelType.paperRollLocation: true,
+    for (var type in LabelType.values) type: true
   };
+  Map<LabelType, List<dynamic>> _labelData = {};
 
   @override
   void initState() {
@@ -60,10 +58,22 @@ class _HomePageState extends State<HomePage> {
       });
 
       final futures = await Future.wait([
-        _fgPalletService.fetchLabels(),
-        _rollService.fetchLabels(),
-        _fgLocationService.fetchLabels(),
-        _paperRollLocationService.fetchLabels(),
+        _fgPalletService.list(
+          startDate: _selectedDateRange?.start,
+          endDate: _selectedDateRange?.end,  // This parameter name now matches
+        ),
+        _rollService.list(
+          startDate: _selectedDateRange?.start,
+          endDate: _selectedDateRange?.end,  // This parameter name now matches
+        ),
+        _fgLocationService.list(
+          startDate: _selectedDateRange?.start,
+          endDate: _selectedDateRange?.end,  // This parameter name now matches
+        ),
+        _paperRollLocationService.list(
+          startDate: _selectedDateRange?.start,
+          endDate: _selectedDateRange?.end,  // This parameter name now matches
+        ),
       ]);
 
       setState(() {
@@ -75,19 +85,155 @@ class _HomePageState extends State<HomePage> {
         };
       });
     } catch (e) {
-      setState(() {
-        _error = 'Error loading data: ${e.toString()}';
-      });
+      setState(() => _error = 'Error loading data: ${e.toString()}');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
-  String _formatDateTime(DateTime dateTime) {
-    final formatter = DateFormat('MMM dd, yyyy HH:mm');
-    return formatter.format(dateTime);
+  List<dynamic> _getFilteredLabels(LabelType type) {
+    final labels = _labelData[type] ?? [];
+    if (_searchQuery.isEmpty) return labels;
+
+    return labels.where((label) {
+      switch (type) {
+        case LabelType.fgPallet:
+          final fgLabel = label as FGPalletLabel;
+          return fgLabel.plateId.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                 fgLabel.workOrder.toLowerCase().contains(_searchQuery.toLowerCase());
+        case LabelType.roll:
+          final rollLabel = label as RollLabel;
+          return rollLabel.rollId.toLowerCase().contains(_searchQuery.toLowerCase());
+        case LabelType.fgLocation:
+          final locationLabel = label as FGLocationLabel;
+          return locationLabel.locationId.toLowerCase().contains(_searchQuery.toLowerCase());
+        case LabelType.paperRollLocation:
+          final locationLabel = label as PaperRollLocationLabel;
+          return locationLabel.locationId.toLowerCase().contains(_searchQuery.toLowerCase());
+      }
+    }).toList();
+  }
+
+  Widget _buildLabelCard(dynamic label, LabelType type) {
+    final isRescan = label.isRescan;
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: ListTile(
+        leading: _getLabelTypeIcon(type),
+        title: Text(
+          _getLabelTitle(label, type),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (type == LabelType.fgPallet)
+              Text(
+                'Work Order: ${(label as FGPalletLabel).workOrder}',
+                style: const TextStyle(fontSize: 14),
+              ),
+            Text(
+              'Scanned: ${_formatDateTime(label.timeLog)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+            if (isRescan)
+              Text(
+                'Rescan',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.orange[800],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypeSection(LabelType type) {
+    final filteredLabels = _getFilteredLabels(type);
+    
+    if (filteredLabels.isEmpty) return const SizedBox.shrink();
+
+    final rescanCount = filteredLabels.where((l) => l.isRescan).length;
+    final totalScans = filteredLabels.length;
+
+    return Card(
+      margin: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          ListTile(
+            leading: _getLabelTypeIcon(type),
+            title: Text(
+              _getLabelTypeName(type),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: Text(
+              '$totalScans scans (${rescanCount > 0 ? '$rescanCount rescans, ' : ''}'
+              '${totalScans - rescanCount} unique)',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${filteredLabels.length} items',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    _isExpanded[type] == true ? Icons.expand_less : Icons.expand_more,
+                  ),
+                  onPressed: () {
+                    setState(() => _isExpanded[type] = !(_isExpanded[type] ?? false));
+                  },
+                ),
+              ],
+            ),
+          ),
+          if (_isExpanded[type] == true)
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: filteredLabels.length,
+              itemBuilder: (context, index) => _buildLabelCard(
+                filteredLabels[index], 
+                type,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _getLabelTitle(dynamic label, LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return 'PLT#: ${(label as FGPalletLabel).plateId}';
+      case LabelType.roll:
+        return 'Roll ID: ${(label as RollLabel).rollId}';
+      case LabelType.fgLocation:
+        return 'Location: ${(label as FGLocationLabel).locationId}';
+      case LabelType.paperRollLocation:
+        return 'Location: ${(label as PaperRollLocationLabel).locationId}';
+    }
   }
 
   Icon _getLabelTypeIcon(LabelType type) {
@@ -116,284 +262,74 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _buildLabelCard(dynamic label, LabelType type) {
-    String title;
-    String? subtitle;
-
-    switch (type) {
-      case LabelType.fgPallet:
-        final fgLabel = label as FGPalletLabel;
-        title = 'PLT#: ${fgLabel.plateId}';
-        subtitle = 'WO: ${fgLabel.workOrder}';
-        break;
-      case LabelType.roll:
-        final rollLabel = label as RollLabel;
-        title = 'Roll ID: ${rollLabel.rollId}';
-        break;
-      case LabelType.fgLocation:
-        final locationLabel = label as FGLocationLabel;
-        title = 'Location: ${locationLabel.locationId}';
-        break;
-      case LabelType.paperRollLocation:
-        final locationLabel = label as PaperRollLocationLabel;
-        title = 'Location: ${locationLabel.locationId}';
-        break;
-    }
-
-    return Card(
-      elevation: 1,
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: ListTile(
-        leading: _getLabelTypeIcon(type),
-        title: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (subtitle != null)
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Scanned: ${_formatDateTime(label.timeLog)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(LabelType type, List<dynamic> items) {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _isExpanded[type] = !(_isExpanded[type] ?? false);
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            _getLabelTypeIcon(type),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _getLabelTypeName(type),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${items.length} items',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              _isExpanded[type] ?? false
-                  ? Icons.expand_less
-                  : Icons.expand_more,
-              color: Colors.grey[600],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLabelTypeSection(LabelType type) {
-    final items = _labelData[type] ?? [];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader(type, items),
-        if (_isExpanded[type] ?? false)
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            child: Column(
-              children: [
-                if (items.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Center(
-                      child: Text(
-                        'No ${_getLabelTypeName(type)} scanned yet',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) => _buildLabelCard(items[index], type),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
+  String _formatDateTime(DateTime dateTime) {
+    return DateFormat('MMM dd, yyyy HH:mm').format(dateTime);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_error != null) {
       return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                style: TextStyle(color: Colors.red[700]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
+            const SizedBox(height: 16),
+            Text(
+              _error!,
+              style: TextStyle(color: Colors.red[700]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
         ),
       );
     }
 
     return RefreshIndicator(
       onRefresh: _loadData,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-                minWidth: constraints.maxWidth,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Summary Card
-                    Card(
-                      elevation: 2,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Summary',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            ...LabelType.values.map((type) {
-                              final count = _labelData[type]?.length ?? 0;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: Row(
-                                  children: [
-                                    _getLabelTypeIcon(type),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        alignment: Alignment.centerLeft,
-                                        child: Text(
-                                          '$count ${_getLabelTypeName(type)}',
-                                          style: const TextStyle(fontSize: 14),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                            const SizedBox(height: 16),
-                            const Center(child: ExportToCsvButton()),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    // Label Type Sections
-                    ...LabelType.values.map((type) => Column(
-                      children: [
-                        _buildLabelTypeSection(type),
-                        const SizedBox(height: 16),
-                      ],
-                    )),
-                  ],
-                ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: InputDecoration(
+                hintText: 'Search labels...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() => _searchQuery = ''),
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
               ),
             ),
-          );
-        }
+          ),
+          Expanded(
+            child: ListView(
+              children: [
+                ...LabelType.values.map(_buildTypeSection),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ExportToCsvButton(
+                    filterTypes: LabelType.values.toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
