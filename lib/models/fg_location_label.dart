@@ -20,18 +20,33 @@ class FGLocationLabel extends BaseLabel {
   }
 
   static FGLocationLabel? fromScanData(String scanData) {
-    // Pattern matches:
-    // - Single letter (like B)
-    // - Any letter followed by 2 digits (like B01, A07)
-    // - R followed by any letter and a digit 1-5 (like RA1, RB4, RC3)
-    final pattern = RegExp(r'^([A-Za-z]|[A-Za-z]\d{2}|R[A-Za-z][1-5])$');
-    if (!pattern.hasMatch(scanData)) return null;
-
-    return FGLocationLabel(
-      locationId: scanData.toUpperCase(),
-      checkIn: DateTime.now(),
-    );
+  // Clean the input
+  final cleanValue = scanData.trim().toUpperCase();
+  print('FG Location validation for: "$cleanValue"');
+  
+  // Three possible formats:
+  // 1. Single letter (B)
+  // 2. Letter + two digits (B01)
+  // 3. Restricted area (RA1)
+  final singleLetterPattern = RegExp(r'^[A-Z]$');
+  final letterDigitsPattern = RegExp(r'^[A-Z]\d{2}$');
+  final restrictedPattern = RegExp(r'^R[A-Z][1-5]$');
+  
+  if (!singleLetterPattern.hasMatch(cleanValue) && 
+      !letterDigitsPattern.hasMatch(cleanValue) &&
+      !restrictedPattern.hasMatch(cleanValue)) {
+    print('FG Location failed validation. Must be either:');
+    print('- Single letter (e.g., B)');
+    print('- Letter followed by 2 digits (e.g., B01)');
+    print('- R followed by letter and digit 1-5 (e.g., RA1)');
+    return null;
   }
+
+  return FGLocationLabel(
+    locationId: cleanValue,
+    checkIn: DateTime.now(),
+  );
+}
 
   @override
   Map<String, dynamic> toMap() {
