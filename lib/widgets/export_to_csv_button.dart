@@ -37,9 +37,10 @@ class ExportToCsvButton extends StatelessWidget {
     final connection = PostgreSQLConnection(
       dotenv.env['DB_HOST'] ?? '',
       int.parse(dotenv.env['DB_PORT'] ?? '5432'),
-      dotenv.env['DB_DATABASE'] ?? '',
+      dotenv.env['DB_NAME'] ?? '',
       username: dotenv.env['DB_USERNAME'] ?? '',
       password: dotenv.env['DB_PASSWORD'] ?? '',
+      useSSL: true,
     );
 
     // Open the connection

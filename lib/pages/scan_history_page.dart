@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:postgres/postgres.dart';
-import '../services/database_service.dart';
 import '../services/scan_session_service.dart';
 import '../models/scan_session.dart';
 import '../models/label_types.dart';
@@ -241,23 +240,26 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
 
     if (_error != null) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-            const SizedBox(height: 16),
-            Text(
-              _error!,
-              style: TextStyle(color: Colors.red[700]),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _loadSessions,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
+              const SizedBox(height: 16),
+              Text(
+                _error!,
+                style: TextStyle(color: Colors.red[700]),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _loadSessions,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -283,50 +285,54 @@ class _ScanHistoryPageState extends State<ScanHistoryPage> {
 
     return RefreshIndicator(
       onRefresh: _loadSessions,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<LabelType?>(
-                    value: _selectedType,
-                    decoration: const InputDecoration(
-                      labelText: 'Filter by type',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<LabelType?>(
+                        value: _selectedType,
+                        decoration: const InputDecoration(
+                          labelText: 'Filter by type',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.only(left: 10, right: 1),
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('All')),
+                          ...LabelType.values.map((type) => DropdownMenuItem(
+                                value: type,
+                                child: Text(_getLabelTypeName(type)),
+                              )),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedType = value;
+                          });
+                        },
+                      ),
                     ),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('All')),
-                      ...LabelType.values.map((type) => DropdownMenuItem(
-                        value: type,
-                        child: Text(_getLabelTypeName(type)),
-                      )),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedType = value;
-                      });
-                    },
-                  ),
+                    const SizedBox(width: 10),
+                    ExportToCsvButton(
+                      sessions: _sessions,
+                      filterTypes: _selectedType != null ? [_selectedType!] : null,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                ExportToCsvButton(
-                  sessions: _sessions,
-                  filterTypes: _selectedType != null ? [_selectedType!] : null,
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _sessions.length,
+                  itemBuilder: (context, index) =>
+                      _buildSessionCard(_sessions[index], index),
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _sessions.length,
-              itemBuilder: (context, index) => _buildSessionCard(_sessions[index], index),
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }

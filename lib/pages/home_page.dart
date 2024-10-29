@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:postgres/postgres.dart';
 import 'package:intl/intl.dart';
-import '../services/database_service.dart';
 import '../services/fg_pallet_label_service.dart';
 import '../services/roll_label_service.dart';
 import '../services/fg_location_label_service.dart';
@@ -120,7 +119,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildLabelCard(dynamic label, LabelType type) {
     String title;
     String? subtitle;
-    
+
     switch (type) {
       case LabelType.fgPallet:
         final fgLabel = label as FGPalletLabel;
@@ -146,28 +145,39 @@ class _HomePageState extends State<HomePage> {
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       child: ListTile(
         leading: _getLabelTypeIcon(type),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (subtitle != null)
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 14,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 14,
+                  ),
                 ),
               ),
-            Text(
-              'Scanned: ${_formatDateTime(label.timeLog)}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Scanned: ${_formatDateTime(label.timeLog)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
               ),
             ),
           ],
@@ -197,18 +207,25 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _getLabelTypeName(type),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _getLabelTypeName(type),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                  Text(
-                    '${items.length} items',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${items.length} items',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
                     ),
                   ),
                 ],
@@ -275,86 +292,108 @@ class _HomePageState extends State<HomePage> {
 
     if (_error != null) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-            const SizedBox(height: 16),
-            Text(
-              _error!,
-              style: TextStyle(color: Colors.red[700]),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _loadData,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
+              const SizedBox(height: 16),
+              Text(
+                _error!,
+                style: TextStyle(color: Colors.red[700]),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _loadData,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     return RefreshIndicator(
       onRefresh: _loadData,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Summary Card
-              Card(
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Summary',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight,
+                minWidth: constraints.maxWidth,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Summary Card
+                    Card(
+                      elevation: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Summary',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...LabelType.values.map((type) {
+                              final count = _labelData[type]?.length ?? 0;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Row(
+                                  children: [
+                                    _getLabelTypeIcon(type),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          '$count ${_getLabelTypeName(type)}',
+                                          style: const TextStyle(fontSize: 14),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                            const SizedBox(height: 16),
+                            const Center(child: ExportToCsvButton()),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      ...LabelType.values.map((type) {
-                        final count = _labelData[type]?.length ?? 0;
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              _getLabelTypeIcon(type),
-                              const SizedBox(width: 8),
-                              Text(
-                                '$count ${_getLabelTypeName(type)}',
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                      const SizedBox(height: 16),
-                      const Center(child: ExportToCsvButton()),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 20),
+                    // Label Type Sections
+                    ...LabelType.values.map((type) => Column(
+                      children: [
+                        _buildLabelTypeSection(type),
+                        const SizedBox(height: 16),
+                      ],
+                    )),
+                  ],
                 ),
               ),
-              const SizedBox(height: 20),
-              
-              // Label Type Sections
-              ...LabelType.values.map((type) => Column(
-                children: [
-                  _buildLabelTypeSection(type),
-                  const SizedBox(height: 16),
-                ],
-              )),
-            ],
-          ),
-        ),
+            ),
+          );
+        }
       ),
     );
   }

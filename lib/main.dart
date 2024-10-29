@@ -2,6 +2,7 @@ import 'package:cps_dragonfly_4_mobile_app/pages/home_page.dart';
 import 'package:cps_dragonfly_4_mobile_app/pages/scan_code_page.dart';
 import 'package:cps_dragonfly_4_mobile_app/pages/scan_history_page.dart';
 import 'package:cps_dragonfly_4_mobile_app/services/database_service.dart';
+import 'package:cps_dragonfly_4_mobile_app/widgets/custom_app_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:cps_dragonfly_4_mobile_app/widgets/app_navigation_bar.dart';
 import 'package:postgres/postgres.dart';
@@ -65,10 +66,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('CPS Dragonfly 4.0'),
-        centerTitle: true,
-      ),
+      appBar: const CustomAppBar(title: 'CPS Dragonfly 4.0',),
       body: _pages[_currentIndex],
       bottomNavigationBar: AppNavigationBar(
         currentIndex: _currentIndex,
