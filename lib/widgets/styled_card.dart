@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-// A reusable card widget for consistent styling across the app
 class StyledCard extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;

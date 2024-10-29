@@ -1,19 +1,19 @@
 import 'dart:async';
-import 'package:cps_dragonfly_4_mobile_app/models/fg_location_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/paper_roll_location_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/fg_location_label_service.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/fg_pallet_label_service.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/paper_roll_location_label_service.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/roll_label_service.dart';
-import 'package:cps_dragonfly_4_mobile_app/widgets/scan_feedback_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:cps_dragonfly_4_mobile_app/services/scan_session_service.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/fg_pallet_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/roll_label.dart';
-import 'package:cps_dragonfly_4_mobile_app/models/label_types.dart';
 import 'package:postgres/postgres.dart';
+import 'package:intl/intl.dart';
+import '../models/fg_location_label.dart';
+import '../models/paper_roll_location_label.dart';
+import '../models/fg_pallet_label.dart';
+import '../models/roll_label.dart';
+import '../models/label_types.dart';
+import '../services/fg_location_label_service.dart';
+import '../services/fg_pallet_label_service.dart';
+import '../services/paper_roll_location_label_service.dart';
+import '../services/roll_label_service.dart';
+import '../widgets/scan_feedback_overlay.dart';
 
 class ScanCodePage extends StatefulWidget {
   final PostgreSQLConnection connection;
@@ -24,115 +24,125 @@ class ScanCodePage extends StatefulWidget {
   State<ScanCodePage> createState() => _ScanCodePageState();
 }
 
-class _ScanCodePageState extends State<ScanCodePage> {
-late final ScanSessionService _scanService;
+class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver, TickerProviderStateMixin {
   late final FGPalletLabelService _fgPalletService;
   late final RollLabelService _rollService;
   late final FGLocationLabelService _fgLocationService;
   late final PaperRollLocationLabelService _paperRollLocationService;
-  
+
   MobileScannerController? _controller;
   bool _isScanning = false;
   bool _isProcessing = false;
+  bool _isFlashOn = false;
+  bool _isFrontCamera = false;
+
+  late AnimationController _animationController;
 
   // State variables for feedback
   String? _lastScannedCode;
   String? _feedbackMessage;
   Color _feedbackColor = Colors.green;
-  Uint8List? _lastScannedImage;
   Timer? _feedbackTimer;
+  Uint8List? _lastScannedImage;
   LabelType? _lastLabelType;
   DateTime _lastScanTime = DateTime.now();
+  
+  // Statistics for current scanning session
+  Map<LabelType, int> _scanStats = {
+    for (var type in LabelType.values) type: 0
+  };
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeServices();
+
+    // Initialize animation controller
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+
+    _startScanning();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopScanning();
+    _feedbackTimer?.cancel();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Handle app lifecycle changes
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+        if (_controller != null) {
+          _controller?.stop();
+        }
+        break;
+      case AppLifecycleState.resumed:
+        if (_controller != null && _isScanning) {
+          _controller?.start();
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   void _initializeServices() {
-    _scanService = ScanSessionService(widget.connection);
     _fgPalletService = FGPalletLabelService(widget.connection);
     _rollService = RollLabelService(widget.connection);
     _fgLocationService = FGLocationLabelService(widget.connection);
     _paperRollLocationService = PaperRollLocationLabelService(widget.connection);
   }
 
-  Future<void> _startNewSession() async {
+  void _startScanning() {
+    if (_controller != null) {
+      _controller?.dispose();
+    }
+
     try {
-      await _scanService.startNewSession();
-      if (mounted) {
-        Navigator.of(context).pop();
-        _startScanning();
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start session: ${e.toString()}')),
+      setState(() {
+        _controller = MobileScannerController(
+          detectionSpeed: DetectionSpeed.noDuplicates,
+          returnImage: true,
+          facing: _isFrontCamera ? CameraFacing.front : CameraFacing.back,
+          torchEnabled: _isFlashOn,
         );
-      }
+        _isScanning = true;
+        _scanStats = {
+          for (var type in LabelType.values) type: 0
+        };
+      });
+    } on Exception catch (e) {
+      _showFeedback(
+        'Failed to start scanner: ${e.toString()}',
+        Colors.red,
+      );
     }
   }
 
-  @override
-  void dispose() {
-    _controller?.dispose();
-    _feedbackTimer?.cancel();
-    super.dispose();
-  }
-
-  void _startScanning() {
-    setState(() {
-      _controller = MobileScannerController(
-        detectionSpeed: DetectionSpeed.noDuplicates,
-        returnImage: true,
-      );
-      _isScanning = true;
-    });
-  }
-
-  Future<void> _showSessionDialog() async {
-    return showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Scanning Session'),
-          content: const Text('Would you like to start a new scanning session or continue the previous one?'),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('New Session'),
-              onPressed: () async {
-                await _scanService.startNewSession();
-                if (mounted) {
-                  Navigator.of(context).pop();
-                  _startScanning();
-                }
-              },
-            ),
-            if (_scanService.sessions.isNotEmpty)
-              TextButton(
-                child: const Text('Continue Last'),
-                onPressed: () {
-                  _scanService.continueLastSession();
-                  Navigator.of(context).pop();
-                  _startScanning();
-                },
-              ),
-          ],
-        );
-      },
-    );
-  }
-    void _showFeedback(String message, Color color, {Duration duration = const Duration(seconds: 2)}) {
+  void _showFeedback(String message, Color color, {Duration duration = const Duration(seconds: 2)}) {
     setState(() {
       _feedbackMessage = message;
       _feedbackColor = color;
     });
 
-    // Vibrate feedback based on the type of message
-    HapticFeedback.mediumImpact();
+    // Vibration feedback based on the type of message
+    if (color == Colors.green) {
+      HapticFeedback.mediumImpact();
+    } else if (color == Colors.red) {
+      HapticFeedback.heavyImpact();
+    } else {
+      HapticFeedback.lightImpact();
+    }
 
     _feedbackTimer?.cancel();
     _feedbackTimer = Timer(duration, () {
@@ -145,12 +155,13 @@ late final ScanSessionService _scanService;
   }
 
   Future<void> _processScannedCode(String value, Uint8List? image) async {
-    // Prevent processing if already handling a scan
-    if (_isProcessing) return;
+    // Check if widget is still mounted before processing
+    if (!mounted) return;
     
-    // Prevent rapid-fire scanning of the same code
-    if (_lastScannedCode == value && 
-        DateTime.now().difference(_lastScanTime).inMilliseconds < 1000) {
+    // Prevent processing if already handling a scan or too rapid scanning
+    if (_isProcessing || 
+        (_lastScannedCode == value && 
+         DateTime.now().difference(_lastScanTime).inMilliseconds < 1000)) {
       return;
     }
 
@@ -162,215 +173,420 @@ late final ScanSessionService _scanService;
     });
 
     try {
-      // Check for duplicates
-      if (_scanService.isValueExistsInCurrentSession(value)) {
-        _showFeedback('⚠️ Duplicate code in current session', const Color(0xFFFF9800));
-        return;
-      }
+      final labelType = await _saveLabelToDatabase(value);
+      
+      // Check again if widget is still mounted after async operation
+      if (!mounted) return;
+      
+      if (labelType != null) {
+        _lastLabelType = labelType;
+        setState(() {
+          _scanStats[labelType] = (_scanStats[labelType] ?? 0) + 1;
+        });
 
-      final existsInOtherSessions = _scanService.isValueExistsInOtherSessions(value);
-      final sessionId = int.parse(_scanService.currentSession?.sessionId ?? '0');
-
-      // Try to parse and save the label
-      if (await _saveLabelToDatabase(value, sessionId)) {
-        if (existsInOtherSessions) {
-          _showFeedback('ℹ️ Code found in previous session', const Color(0xFF2196F3));
-        } else {
-          _showFeedback('✅ Code successfully scanned', const Color(0xFF4CAF50));
-        }
+        _showFeedback(
+          '✅ ${_getLabelTypeName(labelType)} scanned',
+          Colors.green,
+        );
       } else {
-        _showFeedback('❌ Invalid code format', const Color(0xFFF44336));
+        _showFeedback(
+          '❌ Invalid code format', 
+          Colors.red,
+        );
       }
     } catch (e) {
-      _showFeedback('❌ Error saving scan: ${e.toString()}', const Color(0xFFF44336));
+      if (mounted) {
+        _showFeedback(
+          '❌ Error: ${e.toString()}', 
+          Colors.red,
+        );
+      }
     } finally {
-      setState(() {
-        _isProcessing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
-  Future<bool> _saveLabelToDatabase(String value, int sessionId) async {
-    // Try FG Pallet Label
-    final fgPalletLabel = FGPalletLabel.fromScanData(value);
-    if (fgPalletLabel != null) {
-      await _fgPalletService.insertLabel(fgPalletLabel, sessionId);
-      _scanService.currentSession?.addScan(fgPalletLabel, LabelType.fgPallet);
-      return true;
-    }
-
-    // Try Roll Label
-    final rollLabel = RollLabel.fromScanData(value);
-    if (rollLabel != null) {
-      await _rollService.insertLabel(rollLabel, sessionId);
-      _scanService.currentSession?.addScan(rollLabel, LabelType.roll);
-      return true;
-    }
-
-    // Try FG Location Label
-    final fgLocationLabel = FGLocationLabel.fromScanData(value);
-    if (fgLocationLabel != null) {
-      await _fgLocationService.insertLabel(fgLocationLabel, sessionId);
-      _scanService.currentSession?.addScan(fgLocationLabel, LabelType.fgLocation);
-      return true;
-    }
-
-    // Try Paper Roll Location Label
-    final paperRollLocationLabel = PaperRollLocationLabel.fromScanData(value);
-    if (paperRollLocationLabel != null) {
-      await _paperRollLocationService.insertLabel(paperRollLocationLabel, sessionId);
-      _scanService.currentSession?.addScan(paperRollLocationLabel, LabelType.paperRollLocation);
-      return true;
-    }
-
-    return false;
-  }
-
-
-  Future<void> _stopScanning() async {
+  Future<LabelType?> _saveLabelToDatabase(String value) async {
     try {
-      await _scanService.endCurrentSession();
-      setState(() {
-        _controller?.dispose();
-        _controller = null;
-        _isScanning = false;
-      });
+      // Try FG Pallet Label
+      final fgPalletLabel = FGPalletLabel.fromScanData(value);
+      if (fgPalletLabel != null) {
+        await _fgPalletService.create(fgPalletLabel);
+        return LabelType.fgPallet;
+      }
+
+      // Try Roll Label
+      final rollLabel = RollLabel.fromScanData(value);
+      if (rollLabel != null) {
+        await _rollService.create(rollLabel);
+        return LabelType.roll;
+      }
+
+      // Try FG Location Label
+      final fgLocationLabel = FGLocationLabel.fromScanData(value);
+      if (fgLocationLabel != null) {
+        await _fgLocationService.create(fgLocationLabel);
+        return LabelType.fgLocation;
+      }
+
+      // Try Paper Roll Location Label
+      final paperRollLocationLabel = PaperRollLocationLabel.fromScanData(value);
+      if (paperRollLocationLabel != null) {
+        await _paperRollLocationService.create(paperRollLocationLabel);
+        return LabelType.paperRollLocation;
+      }
+
+      return null;
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error ending session: ${e.toString()}')),
-      );
+      print('Error saving label: $e');
+      rethrow;
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (!_isScanning) {
-      return Center(
-        child: ElevatedButton(
-          onPressed: _showSessionDialog,
-          child: const Text('Start Scanning'),
-        ),
-      );
+  void _stopScanning() {
+    if (_controller != null) {
+      _controller?.dispose();
+      _controller = null;
     }
+    
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+        _lastScannedCode = null;
+        _lastScannedImage = null;
+        _lastLabelType = null;
+      });
+      
+      _showScanSummary();
+    }
+  }
 
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
-            children: [
-              SizedBox(
-                height: constraints.maxHeight,
-                width: constraints.maxWidth,
-                child: MobileScanner(
-                  controller: _controller!,
-                  onDetect: (capture) {
-                    final List<Barcode> barcodes = capture.barcodes;
-                    final image = capture.image;
-                    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                      _processScannedCode(barcodes.first.rawValue!, image);
-                    }
-                  },
-                ),
+  void _showScanSummary() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              Icons.summarize,
+              color: Theme.of(context).primaryColor,
+            ),
+            const SizedBox(width: 8),
+            const Text('Scan Summary'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ...LabelType.values.map((type) => Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _getLabelTypeColor(type).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
               ),
-              if (_feedbackMessage != null)
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 20,
-                  left: 20,
-                  right: 20,
-                  child: ScanFeedbackOverlay(
-                    message: _feedbackMessage!,
-                    color: _feedbackColor,
-                  ),
-                ),
-              if (_lastScannedCode != null)
-                Positioned(
-                  bottom: 80,
-                  left: 20,
-                  right: 20,
-                  child: Material(
-                    elevation: 8,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      constraints: BoxConstraints(
-                        maxHeight: constraints.maxHeight * 0.3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              children: [
-                                if (_lastScannedImage != null)
-                                  SizedBox(
-                                    height: 80,
-                                    width: 80,
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.memory(
-                                        _lastScannedImage!,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                  ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildScanDetails(_lastScannedCode!, _lastLabelType),
-                                ),
-                              ],
-                            ),
-                          ],
+              child: Row(
+                children: [
+                  _getLabelTypeIcon(type),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getLabelTypeName(type),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
+                        Text(
+                          '${_scanStats[type]} scan${_scanStats[type] != 1 ? 's' : ''}',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              Positioned(
-                bottom: 20,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: ElevatedButton.icon(
-                    onPressed: _stopScanning,
-                    icon: const Icon(Icons.stop),
-                    label: const Text('Stop Scanning'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 12,
-                      ),
-                      elevation: 4,
-                    ),
-                  ),
-                ),
+                ],
+              ),
+            )),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScannerControls() {
+    return Positioned(
+      bottom: 32,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [
+              Colors.black.withOpacity(0.8),
+              Colors.transparent,
+            ],
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildControlButton(
+              icon: _isFlashOn ? Icons.flash_on : Icons.flash_off,
+              label: _isFlashOn ? 'Flash On' : 'Flash Off',
+              onPressed: () {
+                setState(() {
+                  _isFlashOn = !_isFlashOn;
+                  _controller?.toggleTorch();
+                });
+              },
+            ),
+            _buildMainButton(),
+            _buildControlButton(
+              icon: _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
+              label: _isFrontCamera ? 'Front Cam' : 'Back Cam',
+              onPressed: () {
+                setState(() {
+                  _isFrontCamera = !_isFrontCamera;
+                  _controller?.switchCamera();
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white24,
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: Icon(icon, color: Colors.white),
+            onPressed: onPressed,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMainButton() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 64,
+          width: 64,
+          decoration: BoxDecoration(
+            color: _isScanning ? Colors.red : Colors.green,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: (_isScanning ? Colors.red : Colors.green).withOpacity(0.3),
+                spreadRadius: 2,
+                blurRadius: 8,
               ),
             ],
-          );
-        },
-      );
-    }
+          ),
+          child: MaterialButton(
+            onPressed: _isScanning ? _stopScanning : _startScanning,
+            shape: const CircleBorder(),
+            child: Icon(
+              _isScanning ? Icons.stop : Icons.play_arrow,
+              color: Colors.white,
+              size: 32,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _isScanning ? 'Stop' : 'Start',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
   }
-  
 
-  LabelType? _getLabelTypeFromValue(String value) {
-    if (FGPalletLabel.fromScanData(value) != null) {
-      return LabelType.fgPallet;
+  Widget _buildScannerOverlay() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.5),
+      ),
+      child: Stack(
+        children: [
+          Center(
+            child: Container(
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: _isProcessing 
+                      ? Colors.orange 
+                      : Colors.white,
+                  width: 3,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: (_isProcessing ? Colors.orange : Colors.white)
+                        .withOpacity(0.3),
+                    spreadRadius: 3,
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(17),
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // Scan lines animation
+          if (!_isProcessing) _buildScanAnimation(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScanAnimation() {
+    return Center(
+      child: SizedBox(
+        width: 250,
+        height: 250,
+        child: AnimatedBuilder(
+          animation: _animationController,
+          builder: (context, child) {
+            return CustomPaint(
+              painter: ScanLinePainter(
+                progress: _animationController.value,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSessionStats() {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 20,
+      left: 16,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.black87,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Session Stats',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...LabelType.values.map((type) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  _getLabelTypeIcon(type),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_scanStats[type]}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _getLabelTypeName(type),
+                    style: TextStyle(
+                      color: Colors.grey[300],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Icon _getLabelTypeIcon(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return const Icon(Icons.inventory_2, color: Colors.blue);
+      case LabelType.roll:
+        return const Icon(Icons.rotate_right, color: Colors.green);
+      case LabelType.fgLocation:
+        return const Icon(Icons.location_on, color: Colors.orange);
+      case LabelType.paperRollLocation:
+        return const Icon(Icons.location_searching, color: Colors.purple);
     }
-    if (RollLabel.fromScanData(value) != null) {
-      return LabelType.roll;
-    }
-    if (FGLocationLabel.fromScanData(value) != null) {
-      return LabelType.fgLocation;
-    }
-    if (PaperRollLocationLabel.fromScanData(value) != null) {
-      return LabelType.paperRollLocation;
-    }
-    return null;
   }
 
   String _getLabelTypeName(LabelType type) {
@@ -386,67 +602,174 @@ late final ScanSessionService _scanService;
     }
   }
 
-  Widget _buildScanDetails(String value, LabelType? type) {
-    final TextStyle labelStyle = TextStyle(
-      fontSize: 14,
-      color: Colors.grey[600],
-    );
-    final TextStyle valueStyle = const TextStyle(
-      fontSize: 16,
-      fontWeight: FontWeight.bold,
-      color: Colors.black,
-    );
-
-    if (type == LabelType.fgPallet) {
-      final label = FGPalletLabel.fromScanData(value);
-      if (label != null) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Label Type: ${_getLabelTypeName(type!)}', style: labelStyle,),
-            const SizedBox(height: 4),
-            Text('Plate ID: ${label.plateId}', style: valueStyle,),
-            const SizedBox(height: 4),
-            Text('Work Order: ${label.workOrder}', style: valueStyle,),
-          ],
-        );
-      }
-    } else if (type == LabelType.roll) {
-      final label = RollLabel.fromScanData(value);
-      if (label != null) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Label Type: ${_getLabelTypeName(type!)}', style: labelStyle,),
-            const SizedBox(height: 4),
-            Text('Roll ID: ${label.rollId}', style: valueStyle,),
-          ],
-        );
-      }
-    }else if (type == LabelType.fgLocation){
-      final label = FGLocationLabel.fromScanData(value);
-      if (label != null) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Label Type: ${_getLabelTypeName(type!)}', style: labelStyle,),
-            const SizedBox(height: 4),
-            Text('Location ID: ${label.locationId}', style: valueStyle,),
-          ],
-        );
-      }
-    }else if (type == LabelType.paperRollLocation){
-      final label = PaperRollLocationLabel.fromScanData(value);
-      if (label != null) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Label Type: ${_getLabelTypeName(type!)}', style: labelStyle,),
-            const SizedBox(height: 4),
-            Text('Location ID: ${label.locationId}', style: valueStyle,),
-          ],
-        );
-      }
+  Color _getLabelTypeColor(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return Colors.blue;
+      case LabelType.roll:
+        return Colors.green;
+      case LabelType.fgLocation:
+        return Colors.orange;
+      case LabelType.paperRollLocation:
+        return Colors.purple;
     }
-    return Text('Raw Value: $value');
   }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isScanning) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).primaryColor,
+              Theme.of(context).primaryColor.withOpacity(0.8),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.3),
+                      spreadRadius: 2,
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.qr_code_scanner,
+                  size: 64,
+                  color: Theme.of(context).primaryColor,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Ready to Scan',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tap to start scanning labels',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.white.withOpacity(0.8),
+                ),
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: _startScanning,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Start Scanning'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Theme.of(context).primaryColor,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        MobileScanner(
+          controller: _controller!,
+          onDetect: (capture) {
+            final List<Barcode> barcodes = capture.barcodes;
+            final Uint8List? image = capture.image;
+            if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+              _processScannedCode(barcodes.first.rawValue!, image);
+            }
+          },
+          errorBuilder: (context, error, child){
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.red,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: (){
+                      _stopScanning();
+                      _startScanning();
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  )
+                ],
+              )
+            );
+          },
+        ),
+        _buildScannerOverlay(),
+        _buildSessionStats(),
+        if (_feedbackMessage != null)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 100,
+            left: 20,
+            right: 20,
+            child: ScanFeedbackOverlay(
+              message: _feedbackMessage!,
+              color: _feedbackColor,
+            ),
+          ),
+        _buildScannerControls(),
+      ],
+    );
+  }
+}
+
+// Custom painter for scan line animation
+class ScanLinePainter extends CustomPainter {
+  final double progress;
+
+  ScanLinePainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.green.withOpacity(0.5)
+      ..strokeWidth = 2;
+
+    // Calculate y position based on animation progress
+    final y = size.height * progress;
+  
+    final path = Path()
+      ..moveTo(0, y)
+      ..lineTo(size.width, y);
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(ScanLinePainter oldDelegate) {
+    return oldDelegate.progress != progress;
+  }
+}
+

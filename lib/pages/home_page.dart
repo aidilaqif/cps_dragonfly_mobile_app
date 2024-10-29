@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:postgres/postgres.dart';
 import 'package:intl/intl.dart';
+import 'package:postgres/postgres.dart';
+import '../models/fg_pallet_label.dart';
+import '../models/fg_location_label.dart';
+import '../models/paper_roll_location_label.dart';
+import '../models/roll_label.dart';
+import '../models/label_types.dart';
 import '../services/fg_pallet_label_service.dart';
 import '../services/roll_label_service.dart';
 import '../services/fg_location_label_service.dart';
 import '../services/paper_roll_location_label_service.dart';
-import '../models/fg_pallet_label.dart';
-import '../models/roll_label.dart';
-import '../models/fg_location_label.dart';
-import '../models/paper_roll_location_label.dart';
-import '../models/label_types.dart';
-import '../widgets/export_to_csv_button.dart';
+import '../widgets/scan_item_card.dart';
+import '../widgets/date_range_selector.dart';
+import '../widgets/label_type_filter.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/error_state.dart';
+import '../widgets/export_to_excel_button.dart';
 
 class HomePage extends StatefulWidget {
   final PostgreSQLConnection connection;
@@ -29,14 +34,11 @@ class _HomePageState extends State<HomePage> {
   
   bool _isLoading = true;
   String? _error;
+  String _searchQuery = '';
+  DateTimeRange? _selectedDateRange;
+  List<LabelType> _selectedTypes = LabelType.values.toList();
   
   Map<LabelType, List<dynamic>> _labelData = {};
-  Map<LabelType, bool> _isExpanded = {
-    LabelType.fgPallet: true,
-    LabelType.roll: true,
-    LabelType.fgLocation: true,
-    LabelType.paperRollLocation: true,
-  };
 
   @override
   void initState() {
@@ -60,47 +62,319 @@ class _HomePageState extends State<HomePage> {
       });
 
       final futures = await Future.wait([
-        _fgPalletService.fetchLabels(),
-        _rollService.fetchLabels(),
-        _fgLocationService.fetchLabels(),
-        _paperRollLocationService.fetchLabels(),
+        if (_selectedTypes.contains(LabelType.fgPallet))
+          _fgPalletService.list(
+            startDate: _selectedDateRange?.start,
+            endDate: _selectedDateRange?.end,
+          ),
+        if (_selectedTypes.contains(LabelType.roll))
+          _rollService.list(
+            startDate: _selectedDateRange?.start,
+            endDate: _selectedDateRange?.end,
+          ),
+        if (_selectedTypes.contains(LabelType.fgLocation))
+          _fgLocationService.list(
+            startDate: _selectedDateRange?.start,
+            endDate: _selectedDateRange?.end,
+          ),
+        if (_selectedTypes.contains(LabelType.paperRollLocation))
+          _paperRollLocationService.list(
+            startDate: _selectedDateRange?.start,
+            endDate: _selectedDateRange?.end,
+          ),
       ]);
 
       setState(() {
-        _labelData = {
-          LabelType.fgPallet: futures[0],
-          LabelType.roll: futures[1],
-          LabelType.fgLocation: futures[2],
-          LabelType.paperRollLocation: futures[3],
-        };
+        _labelData = {};
+        var index = 0;
+        if (_selectedTypes.contains(LabelType.fgPallet)) {
+          _labelData[LabelType.fgPallet] = futures[index++];
+        }
+        if (_selectedTypes.contains(LabelType.roll)) {
+          _labelData[LabelType.roll] = futures[index++];
+        }
+        if (_selectedTypes.contains(LabelType.fgLocation)) {
+          _labelData[LabelType.fgLocation] = futures[index++];
+        }
+        if (_selectedTypes.contains(LabelType.paperRollLocation)) {
+          _labelData[LabelType.paperRollLocation] = futures[index];
+        }
       });
     } catch (e) {
-      setState(() {
-        _error = 'Error loading data: ${e.toString()}';
-      });
+      setState(() => _error = 'Error loading data: ${e.toString()}');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
-  String _formatDateTime(DateTime dateTime) {
-    final formatter = DateFormat('MMM dd, yyyy HH:mm');
-    return formatter.format(dateTime);
+  List<dynamic> _getFilteredLabels(LabelType type) {
+    final labels = _labelData[type] ?? [];
+    if (_searchQuery.isEmpty) return labels;
+
+    return labels.where((label) {
+      switch (type) {
+        case LabelType.fgPallet:
+          final fgLabel = label as FGPalletLabel;
+          return fgLabel.plateId.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                 fgLabel.workOrder.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                 fgLabel.rawValue.toLowerCase().contains(_searchQuery.toLowerCase());
+        case LabelType.roll:
+          final rollLabel = label as RollLabel;
+          return rollLabel.rollId.toLowerCase().contains(_searchQuery.toLowerCase());
+        case LabelType.fgLocation:
+          final locationLabel = label as FGLocationLabel;
+          return locationLabel.locationId.toLowerCase().contains(_searchQuery.toLowerCase());
+        case LabelType.paperRollLocation:
+          final locationLabel = label as PaperRollLocationLabel;
+          return locationLabel.locationId.toLowerCase().contains(_searchQuery.toLowerCase());
+      }
+    }).toList();
   }
 
-  Icon _getLabelTypeIcon(LabelType type) {
-    switch (type) {
-      case LabelType.fgPallet:
-        return const Icon(Icons.inventory_2, color: Colors.blue);
-      case LabelType.roll:
-        return const Icon(Icons.rotate_right, color: Colors.green);
-      case LabelType.fgLocation:
-        return const Icon(Icons.location_on, color: Colors.orange);
-      case LabelType.paperRollLocation:
-        return const Icon(Icons.location_searching, color: Colors.purple);
-    }
+  Widget _buildFilterSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Filters',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+          const SizedBox(height: 16),
+          DateRangeSelector(
+            selectedRange: _selectedDateRange,
+            onRangeSelected: (range) {
+              setState(() => _selectedDateRange = range);
+              _loadData();
+            },
+            onClearRange: () {
+              setState(() => _selectedDateRange = null);
+              _loadData();
+            },
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            onChanged: (value) => setState(() => _searchQuery = value),
+            decoration: InputDecoration(
+              hintText: 'Search labels...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => _searchQuery = ''),
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).primaryColor.withOpacity(0.5),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Colors.grey.withOpacity(0.3),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).primaryColor,
+                  width: 2,
+                ),
+              ),
+              filled: true,
+              fillColor: Colors.grey.withOpacity(0.05),
+            ),
+          ),
+          const SizedBox(height: 16),
+          LabelTypeFilter(
+            selectedTypes: _selectedTypes,
+            onTypesChanged: (types) {
+              setState(() => _selectedTypes = types);
+              _loadData();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLabelSection(LabelType type) {
+    final filteredLabels = _getFilteredLabels(type);
+    if (filteredLabels.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  _getLabelTypeIcon(type),
+                  color: _getLabelTypeColor(type),
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _getLabelTypeName(type),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _getLabelTypeColor(type).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${filteredLabels.length}',
+                    style: TextStyle(
+                      color: _getLabelTypeColor(type),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: filteredLabels.length,
+            itemBuilder: (context, index) {
+              final label = filteredLabels[index];
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: ScanItemCard(
+                  title: _getLabelTitle(label),
+                  subtitle: _getLabelSubtitle(label),
+                  details: _getLabelDetails(label),
+                  checkIn: label.checkIn,
+                  labelType: type,
+                  onTap: () => _showLabelDetails(label),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+void _showLabelDetails(dynamic label) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              _getLabelTypeIcon(label),
+              color: _getLabelTypeColor(label),
+            ),
+            const SizedBox(width: 8),
+            Text(_getDialogTitle(label)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow(
+                'Scan Time', 
+                DateFormat('dd/MM/yyyy HH:mm:ss').format(label.checkIn)
+              ),
+              const SizedBox(height: 8),
+              if (label is FGPalletLabel) ...[
+                _buildDetailRow('Plate ID', label.plateId),
+                _buildDetailRow('Work Order', label.workOrder),
+                _buildDetailRow('Raw Value', label.rawValue),
+              ] else if (label is RollLabel) ...[
+                _buildDetailRow('Roll ID', label.rollId),
+                _buildDetailRow('Batch Number', label.batchNumber),
+                _buildDetailRow('Sequence Number', label.sequenceNumber),
+              ] else if (label is FGLocationLabel) ...[
+                _buildDetailRow('Location ID', label.locationId),
+                _buildDetailRow('Area Type', label.areaType),
+              ] else if (label is PaperRollLocationLabel) ...[
+                _buildDetailRow('Location ID', label.locationId),
+                _buildDetailRow('Row', label.rowNumber),
+                _buildDetailRow('Position', label.positionNumber),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getDialogTitle(dynamic label) {
+    if (label is FGPalletLabel) return 'FG Pallet Label Details';
+    if (label is RollLabel) return 'Roll Label Details';
+    if (label is FGLocationLabel) return 'FG Location Label Details';
+    if (label is PaperRollLocationLabel) return 'Paper Roll Location Details';
+    return 'Label Details';
   }
 
   String _getLabelTypeName(LabelType type) {
@@ -116,170 +390,51 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _buildLabelCard(dynamic label, LabelType type) {
-    String title;
-    String? subtitle;
-
-    switch (type) {
-      case LabelType.fgPallet:
-        final fgLabel = label as FGPalletLabel;
-        title = 'PLT#: ${fgLabel.plateId}';
-        subtitle = 'WO: ${fgLabel.workOrder}';
-        break;
-      case LabelType.roll:
-        final rollLabel = label as RollLabel;
-        title = 'Roll ID: ${rollLabel.rollId}';
-        break;
-      case LabelType.fgLocation:
-        final locationLabel = label as FGLocationLabel;
-        title = 'Location: ${locationLabel.locationId}';
-        break;
-      case LabelType.paperRollLocation:
-        final locationLabel = label as PaperRollLocationLabel;
-        title = 'Location: ${locationLabel.locationId}';
-        break;
+  String _getLabelTitle(dynamic label) {
+    if (label is FGPalletLabel) {
+      return 'PLT#: ${label.plateId}';
+    } else if (label is RollLabel) {
+      return 'Roll ID: ${label.rollId}';
+    } else {
+      return 'Location: ${(label as dynamic).locationId}';
     }
-
-    return Card(
-      elevation: 1,
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: ListTile(
-        leading: _getLabelTypeIcon(type),
-        title: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (subtitle != null)
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Scanned: ${_formatDateTime(label.timeLog)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
-  Widget _buildSectionHeader(LabelType type, List<dynamic> items) {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _isExpanded[type] = !(_isExpanded[type] ?? false);
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            _getLabelTypeIcon(type),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _getLabelTypeName(type),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${items.length} items',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              _isExpanded[type] ?? false
-                  ? Icons.expand_less
-                  : Icons.expand_more,
-              color: Colors.grey[600],
-            ),
-          ],
-        ),
-      ),
-    );
+  String _getLabelSubtitle(dynamic label) {
+    if (label is FGPalletLabel) {
+      return 'Work Order: ${label.workOrder}';
+    } else if (label is RollLabel) {
+      return 'Batch: ${label.batchNumber}';
+    } else if (label is FGLocationLabel) {
+      return 'Area Type: ${label.areaType}';
+    } else {
+      return 'Row: ${(label as PaperRollLocationLabel).rowNumber}';
+    }
   }
 
-  Widget _buildLabelTypeSection(LabelType type) {
-    final items = _labelData[type] ?? [];
+  String? _getLabelDetails(dynamic label) {
+    if (label is FGPalletLabel) {
+      return 'Raw Value: ${label.rawValue}';
+    } else if (label is RollLabel) {
+      return 'Sequence: ${label.sequenceNumber}';
+    }
+    return null;
+  }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader(type, items),
-        if (_isExpanded[type] ?? false)
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            child: Column(
-              children: [
-                if (items.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Center(
-                      child: Text(
-                        'No ${_getLabelTypeName(type)} scanned yet',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) => _buildLabelCard(items[index], type),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
+  Color _getLabelTypeColor(dynamic label) {
+    if (label is FGPalletLabel) return Colors.blue;
+    if (label is RollLabel) return Colors.green;
+    if (label is FGLocationLabel) return Colors.orange;
+    if (label is PaperRollLocationLabel) return Colors.purple;
+    return Colors.grey;
+  }
+
+  IconData _getLabelTypeIcon(dynamic label) {
+    if (label is FGPalletLabel) return Icons.inventory_2;
+    if (label is RollLabel) return Icons.rotate_right;
+    if (label is FGLocationLabel) return Icons.location_on;
+    if (label is PaperRollLocationLabel) return Icons.location_searching;
+    return Icons.label;
   }
 
   @override
@@ -291,109 +446,48 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (_error != null) {
-      return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-              const SizedBox(height: 16),
-              Text(
-                _error!,
-                style: TextStyle(color: Colors.red[700]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
+      return ErrorState(
+        message: _error!,
+        onRetry: _loadData,
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-                minWidth: constraints.maxWidth,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Summary Card
-                    Card(
-                      elevation: 2,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Summary',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            ...LabelType.values.map((type) {
-                              final count = _labelData[type]?.length ?? 0;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: Row(
-                                  children: [
-                                    _getLabelTypeIcon(type),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        alignment: Alignment.centerLeft,
-                                        child: Text(
-                                          '$count ${_getLabelTypeName(type)}',
-                                          style: const TextStyle(fontSize: 14),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                            const SizedBox(height: 16),
-                            const Center(child: ExportToCsvButton()),
-                          ],
-                        ),
-                      ),
+    final hasData = _labelData.values.any((list) => list.isNotEmpty);
+    if (!hasData) {
+      return EmptyState(
+        message: 'No scans found${_selectedDateRange != null ? ' in selected date range' : ''}',
+        icon: Icons.inventory_2,
+        onRefresh: _loadData,
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Column(
+        children: [
+          _buildFilterSection(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 16),
+                children: [
+                  ...LabelType.values
+                      .where((type) => _selectedTypes.contains(type))
+                      .map(_buildLabelSection),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ExportToExcelButton(
+                      startDate: _selectedDateRange?.start,
+                      endDate: _selectedDateRange?.end,
+                      filterTypes: _selectedTypes,
                     ),
-                    const SizedBox(height: 20),
-                    // Label Type Sections
-                    ...LabelType.values.map((type) => Column(
-                      children: [
-                        _buildLabelTypeSection(type),
-                        const SizedBox(height: 16),
-                      ],
-                    )),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          );
-        }
+          ),
+        ],
       ),
     );
   }

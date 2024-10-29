@@ -1,70 +1,104 @@
 import 'package:postgres/postgres.dart';
 import '../models/fg_location_label.dart';
+import 'label_service.dart';
 
-class FGLocationLabelService {
-  final PostgreSQLConnection connection;
+class FGLocationLabelService extends BaseLabelService<FGLocationLabel> {
+  FGLocationLabelService(PostgreSQLConnection connection) 
+    : super(
+        connection, 
+        'fg_location',
+        'fg_location_labels'
+      );
 
-  FGLocationLabelService(this.connection);
+  @override
+  Map<String, dynamic> getLabelValues(FGLocationLabel label) {
+    return {
+      'location_id': label.locationId,
+    };
+  }
 
-  Future<void> insertLabel(FGLocationLabel label, int sessionId) async {
+  @override
+  List<String> getSpecificColumns() {
+    return ['location_id'];
+  }
+
+  @override
+  Map<String, dynamic> getSpecificValues(FGLocationLabel label) {
+    return {
+      'location_id': label.locationId,
+    };
+  }
+
+  @override
+  FGLocationLabel createLabelFromRow(List<dynamic> row) {
+    final checkIn = row[0] is String 
+        ? DateTime.parse(row[0] as String)
+        : (row[0] as DateTime).toLocal();
+    
+    final locationId = row[2] as String;
+
+    return FGLocationLabel(
+      locationId: locationId,
+      checkIn: checkIn,
+    );
+  }
+
+  Future<List<FGLocationLabel>> searchByArea(String area) async {
     try {
-      await connection.transaction((ctx) async {
-        final labelResult = await ctx.query(
-          '''
-          INSERT INTO labels (session_id, label_type, scan_time, is_rescan)
-          VALUES (@sessionId, @labelType, @scanTime, @isRescan)
-          RETURNING id
-          ''',
-          substitutionValues: {
-            'sessionId': sessionId,
-            'labelType': 'fg_location',
-            'scanTime': label.timeLog.toUtc(),
-            'isRescan': false,
-          }
-        );
-
-        if (labelResult.isEmpty) {
-          throw Exception('Failed to insert label record');
+      final results = await connection.query(
+        '''
+        SELECT 
+          l.check_in,
+          l.label_type,
+          fl.location_id
+        FROM labels l
+        JOIN fg_location_labels fl ON l.id = fl.label_id
+        WHERE l.label_type = @labelType
+        AND fl.location_id LIKE @pattern
+        ORDER BY l.check_in DESC
+        ''',
+        substitutionValues: {
+          'labelType': labelType,
+          'pattern': '$area%',
         }
+      );
 
-        final labelId = labelResult.first[0] as int;
-
-        await ctx.query(
-          '''
-          INSERT INTO fg_location_labels (label_id, location_id)
-          VALUES (@labelId, @locationId)
-          ''',
-          substitutionValues: {
-            'labelId': labelId,
-            'locationId': label.locationId,
-          }
-        );
-      });
+      return results.map((row) => createLabelFromRow(row)).toList();
     } catch (e) {
-      print('Error inserting FG location label: $e');
-      throw Exception('Failed to insert FG location label: $e');
+      print('Error searching FG location labels by area: $e');
+      throw Exception('Failed to search FG location labels: $e');
     }
   }
 
-  Future<List<FGLocationLabel>> fetchLabels() async {
+  Future<List<FGLocationLabel>> getLatestLocations() async {
     try {
-      final results = await connection.query('''
-        SELECT l.scan_time, fl.location_id
+      final results = await connection.query(
+        '''
+        WITH latest_scans AS (
+          SELECT location_id, MAX(check_in) as latest_check_in
+          FROM fg_location_labels
+          GROUP BY location_id
+        )
+        SELECT 
+          l.check_in,
+          l.label_type,
+          fl.location_id
         FROM labels l
         JOIN fg_location_labels fl ON l.id = fl.label_id
-        WHERE l.label_type = 'fg_location'
-        ORDER BY l.scan_time DESC
-      ''');
+        JOIN latest_scans ls ON fl.location_id = ls.location_id 
+          AND fl.check_in = ls.latest_check_in
+        WHERE l.label_type = @labelType
+        ORDER BY l.check_in DESC
+        ''',
+        substitutionValues: {
+          'labelType': labelType,
+        }
+      );
 
-      return results.map((row) => FGLocationLabel(
-        timeLog: row[0] is String 
-          ? DateTime.parse(row[0] as String)
-          : (row[0] as DateTime).toLocal(),
-        locationId: row[1] as String,
-      )).toList();
+      return results.map((row) => createLabelFromRow(row)).toList();
     } catch (e) {
-      print('Error fetching FG location labels: $e');
-      throw Exception('Failed to fetch FG location labels: $e');
+      print('Error getting latest FG locations: $e');
+      throw Exception('Failed to get latest FG locations: $e');
     }
   }
 }

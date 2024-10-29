@@ -1,70 +1,72 @@
 import 'package:postgres/postgres.dart';
 import '../models/roll_label.dart';
+import 'label_service.dart';
 
-class RollLabelService {
-  final PostgreSQLConnection connection;
+class RollLabelService extends BaseLabelService<RollLabel> {
+  RollLabelService(PostgreSQLConnection connection) 
+    : super(
+        connection, 
+        'roll',
+        'roll_labels'
+      );
 
-  RollLabelService(this.connection);
-
-  Future<void> insertLabel(RollLabel label, int sessionId) async {
-    try {
-      await connection.transaction((ctx) async {
-        final labelResult = await ctx.query(
-          '''
-          INSERT INTO labels (session_id, label_type, scan_time, is_rescan)
-          VALUES (@sessionId, @labelType, @scanTime, @isRescan)
-          RETURNING id
-          ''',
-          substitutionValues: {
-            'sessionId': sessionId,
-            'labelType': 'roll',
-            'scanTime': label.timeLog.toUtc(),
-            'isRescan': false,
-          }
-        );
-
-        if (labelResult.isEmpty) {
-          throw Exception('Failed to insert label record');
-        }
-
-        final labelId = labelResult.first[0] as int;
-
-        await ctx.query(
-          '''
-          INSERT INTO roll_labels (label_id, roll_id)
-          VALUES (@labelId, @rollId)
-          ''',
-          substitutionValues: {
-            'labelId': labelId,
-            'rollId': label.rollId,
-          }
-        );
-      });
-    } catch (e) {
-      print('Error inserting roll label: $e');
-      throw Exception('Failed to insert roll label: $e');
-    }
+  @override
+  Map<String, dynamic> getLabelValues(RollLabel label) {
+    return {
+      'roll_id': label.rollId,
+    };
   }
 
-  Future<List<RollLabel>> fetchLabels() async {
+  @override
+  List<String> getSpecificColumns() {
+    return ['roll_id'];
+  }
+
+  @override
+  Map<String, dynamic> getSpecificValues(RollLabel label) {
+    return {
+      'roll_id': label.rollId,
+    };
+  }
+
+  @override
+  RollLabel createLabelFromRow(List<dynamic> row) {
+    final checkIn = row[0] is String 
+        ? DateTime.parse(row[0] as String)
+        : (row[0] as DateTime).toLocal();
+    
+    final rollId = row[2] as String;
+
+    return RollLabel(
+      rollId: rollId,
+      checkIn: checkIn,
+    );
+  }
+
+  Future<List<RollLabel>> searchByBatchNumber(String batchNumber) async {
     try {
-      final results = await connection.query('''
-        SELECT l.scan_time, rl.roll_id
+      final results = await connection.query(
+        '''
+        SELECT 
+          l.check_in,
+          l.label_type,
+          rl.roll_id
         FROM labels l
         JOIN roll_labels rl ON l.id = rl.label_id
-        WHERE l.label_type = 'roll'
-        ORDER BY l.scan_time DESC
-      ''');
+        WHERE l.label_type = @labelType
+        AND rl.roll_id LIKE @pattern
+        ORDER BY l.check_in DESC
+        ''',
+        substitutionValues: {
+          'labelType': labelType,
+          'pattern': '$batchNumber%',
+        }
+      );
 
-      return results.map((row) => RollLabel(
-        timeLog: row[0] is String 
-          ? DateTime.parse(row[0] as String)
-          : (row[0] as DateTime).toLocal(),
-        rollId: row[1] as String,
-      )).toList();
+      return results.map((row) => createLabelFromRow(row)).toList();
     } catch (e) {
-      print('Error fetching roll labels: $e');
-      throw Exception('Failed to fetch roll labels: $e');
+      print('Error searching roll labels by batch number: $e');
+      throw Exception('Failed to search roll labels: $e');
     }
   }
 }

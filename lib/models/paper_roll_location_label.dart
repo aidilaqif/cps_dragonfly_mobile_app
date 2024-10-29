@@ -1,34 +1,45 @@
-class PaperRollLocationLabel {
+import 'package:cps_dragonfly_4_mobile_app/models/base_label.dart';
+
+class PaperRollLocationLabel extends BaseLabel {
   final String locationId;
-  final DateTime timeLog;
 
   PaperRollLocationLabel({
     required this.locationId,
-    required this.timeLog,
-  });
+    required DateTime checkIn,
+    Map<String, dynamic>? metadata,
+  }) : super(
+    checkIn: checkIn,
+    metadata: metadata,
+  );
 
-  // Parse the scanned value into PaperRollLocationLabel object
+  String get rowNumber => locationId[0];
+  String get positionNumber => locationId[1];
+
   static PaperRollLocationLabel? fromScanData(String scanData) {
     final pattern = RegExp(r'^[A-Z][0-9]$');
     if (!pattern.hasMatch(scanData)) return null;
 
     return PaperRollLocationLabel(
-      locationId: scanData, // Convert to uppercase for consistency
-      timeLog: DateTime.now(),
+      locationId: scanData,
+      checkIn: DateTime.now(),
     );
+  }
+
+  @override
+  Map<String, dynamic> toMap() {
+    return {
+      ...super.toMap(),
+      'location_id': locationId,
+      'row_number': rowNumber,
+      'position_number': positionNumber,
+    };
   }
 
   factory PaperRollLocationLabel.fromMap(Map<String, dynamic> data) {
     return PaperRollLocationLabel(
       locationId: data['location_id'],
-      timeLog: DateTime.parse(data['created_at']),
+      checkIn: DateTime.parse(data['check_in']),
+      metadata: data['metadata'],
     );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'location_id': locationId,
-      'created_at': timeLog.toIso8601String(),
-    };
   }
 }

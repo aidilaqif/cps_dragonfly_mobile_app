@@ -1,13 +1,20 @@
-class RollLabel {
+import 'package:cps_dragonfly_4_mobile_app/models/base_label.dart';
+
+class RollLabel extends BaseLabel {
   final String rollId;
-  final DateTime timeLog;
 
   RollLabel({
     required this.rollId,
-    required this.timeLog,
-  });
+    required DateTime checkIn,
+    Map<String, dynamic>? metadata,
+  }) : super(
+    checkIn: checkIn,
+    metadata: metadata,
+  );
 
-  // Parse the scanned value into RollLabel object
+  String get batchNumber => rollId.substring(0, 2);
+  String get sequenceNumber => rollId.substring(3);
+
   static RollLabel? fromScanData(String scanData) {
     // Check if the format matches Roll Label pattern (8 characters)
     if (scanData.length != 8) return null;
@@ -18,21 +25,25 @@ class RollLabel {
 
     return RollLabel(
       rollId: scanData,
-      timeLog: DateTime.now(),
+      checkIn: DateTime.now(),
     );
+  }
+
+  @override
+  Map<String, dynamic> toMap() {
+    return {
+      ...super.toMap(),
+      'roll_id': rollId,
+      'batch_number': batchNumber,
+      'sequence_number': sequenceNumber,
+    };
   }
 
   factory RollLabel.fromMap(Map<String, dynamic> data) {
     return RollLabel(
       rollId: data['roll_id'],
-      timeLog: DateTime.parse(data['created_at']),
+      checkIn: DateTime.parse(data['check_in']),
+      metadata: data['metadata'],
     );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'roll_id': rollId,
-      'created_at': timeLog.toIso8601String(),
-    };
   }
 }
