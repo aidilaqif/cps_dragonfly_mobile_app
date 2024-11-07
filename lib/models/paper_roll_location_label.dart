@@ -7,25 +7,31 @@ class PaperRollLocationLabel extends BaseLabel {
     required this.locationId,
     required DateTime checkIn,
     Map<String, dynamic>? metadata,
+    String? status,
+    DateTime? statusUpdatedAt,
+    String? statusNotes,
   }) : super(
-    checkIn: checkIn,
-    metadata: metadata,
-  );
+          checkIn: checkIn,
+          metadata: metadata,
+          status: status,
+          statusUpdatedAt: statusUpdatedAt,
+          statusNotes: statusNotes,
+        );
 
-  String get rowNumber => locationId[0];
-  String get positionNumber => locationId[1];
+  // Get row letter (first character)
+  String get rowNumber => locationId.isNotEmpty ? locationId[0] : '';
+
+  // Get position number (second character)
+  String get positionNumber =>
+      locationId.length > 1 ? locationId.substring(1) : '';
 
   static PaperRollLocationLabel? fromScanData(String scanData) {
-    // Clean the input
     final cleanValue = scanData.trim().toUpperCase();
-    print('Paper Roll Location validation for: "$cleanValue"');
-    
+
     // Format: Letter followed by single digit (S3)
     final pattern = RegExp(r'^[A-Z]\d$');
-    
+
     if (!pattern.hasMatch(cleanValue)) {
-      print('Paper Roll Location failed validation.');
-      print('Must be a letter followed by a single digit (e.g., S3, P2)');
       return null;
     }
 
@@ -47,8 +53,14 @@ class PaperRollLocationLabel extends BaseLabel {
 
   factory PaperRollLocationLabel.fromMap(Map<String, dynamic> data) {
     return PaperRollLocationLabel(
-      locationId: data['location_id'],
-      checkIn: DateTime.parse(data['check_in']),
+      locationId: data['location_id'] ?? '',
+      checkIn:
+          DateTime.parse(data['check_in'] ?? DateTime.now().toIso8601String()),
+      status: data['status'],
+      statusUpdatedAt: data['status_updated_at'] != null
+          ? DateTime.parse(data['status_updated_at'])
+          : null,
+      statusNotes: data['status_notes'],
       metadata: data['metadata'],
     );
   }

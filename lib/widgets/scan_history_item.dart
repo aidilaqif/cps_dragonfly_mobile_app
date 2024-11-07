@@ -8,6 +8,7 @@ class ScanHistoryItem extends StatelessWidget {
   final String? details;
   final DateTime checkIn;
   final LabelType labelType;
+  final String? status;
   final VoidCallback? onTap;
 
   const ScanHistoryItem({
@@ -17,6 +18,7 @@ class ScanHistoryItem extends StatelessWidget {
     this.details,
     required this.checkIn,
     required this.labelType,
+    this.status,
     this.onTap,
   });
 

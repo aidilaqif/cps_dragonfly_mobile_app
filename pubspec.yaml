@@ -42,12 +42,17 @@ dependencies:
   intl: ^0.18.1
   postgres: ^2.6.1
   flutter_dotenv: ^5.2.1
+  http: ^1.2.2
+  connectivity_plus: ^5.0.2
+  cached_network_image: ^3.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   mockito: ^5.4.4
   build_runner: ^2.4.8
+  json_serializable: ^6.7.1
+  freezed: ^2.4.7
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

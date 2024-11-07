@@ -7,46 +7,57 @@ class FGLocationLabel extends BaseLabel {
     required this.locationId,
     required DateTime checkIn,
     Map<String, dynamic>? metadata,
+    String? status,
+    DateTime? statusUpdatedAt,
+    String? statusNotes,
   }) : super(
-    checkIn: checkIn,
-    metadata: metadata,
-  );
+          checkIn: checkIn,
+          metadata: metadata,
+          status: status,
+          statusUpdatedAt: statusUpdatedAt,
+          statusNotes: statusNotes,
+        );
 
   String get areaType {
-    if (locationId.length == 1) return 'main';
-    if (locationId.length == 3 && RegExp(r'^[A-Z]\d{2}$').hasMatch(locationId)) return 'sub';
-    if (RegExp(r'^R[A-Z][1-5]$').hasMatch(locationId)) return 'restricted';
+    if (locationId.isEmpty) return 'unknown';
+
+    // Single letter (e.g., 'B') indicates main area
+    if (locationId.length == 1 && RegExp(r'^[A-Z]$').hasMatch(locationId)) {
+      return 'main';
+    }
+
+    // Letter followed by two digits (e.g., 'B01') indicates sub area
+    if (locationId.length == 3 &&
+        RegExp(r'^[A-Z]\d{2}$').hasMatch(locationId)) {
+      return 'sub';
+    }
+
+    // R followed by letter and digit 1-5 (e.g., 'RA1') indicates restricted area
+    if (RegExp(r'^R[A-Z][1-5]$').hasMatch(locationId)) {
+      return 'restricted';
+    }
+
     return 'unknown';
   }
 
   static FGLocationLabel? fromScanData(String scanData) {
-  // Clean the input
-  final cleanValue = scanData.trim().toUpperCase();
-  print('FG Location validation for: "$cleanValue"');
-  
-  // Three possible formats:
-  // 1. Single letter (B)
-  // 2. Letter + two digits (B01)
-  // 3. Restricted area (RA1)
-  final singleLetterPattern = RegExp(r'^[A-Z]$');
-  final letterDigitsPattern = RegExp(r'^[A-Z]\d{2}$');
-  final restrictedPattern = RegExp(r'^R[A-Z][1-5]$');
-  
-  if (!singleLetterPattern.hasMatch(cleanValue) && 
-      !letterDigitsPattern.hasMatch(cleanValue) &&
-      !restrictedPattern.hasMatch(cleanValue)) {
-    print('FG Location failed validation. Must be either:');
-    print('- Single letter (e.g., B)');
-    print('- Letter followed by 2 digits (e.g., B01)');
-    print('- R followed by letter and digit 1-5 (e.g., RA1)');
-    return null;
-  }
+    final cleanValue = scanData.trim().toUpperCase();
 
-  return FGLocationLabel(
-    locationId: cleanValue,
-    checkIn: DateTime.now(),
-  );
-}
+    final singleLetterPattern = RegExp(r'^[A-Z]$');
+    final letterDigitsPattern = RegExp(r'^[A-Z]\d{2}$');
+    final restrictedPattern = RegExp(r'^R[A-Z][1-5]$');
+
+    if (!singleLetterPattern.hasMatch(cleanValue) &&
+        !letterDigitsPattern.hasMatch(cleanValue) &&
+        !restrictedPattern.hasMatch(cleanValue)) {
+      return null;
+    }
+
+    return FGLocationLabel(
+      locationId: cleanValue,
+      checkIn: DateTime.now(),
+    );
+  }
 
   @override
   Map<String, dynamic> toMap() {
@@ -59,8 +70,14 @@ class FGLocationLabel extends BaseLabel {
 
   factory FGLocationLabel.fromMap(Map<String, dynamic> data) {
     return FGLocationLabel(
-      locationId: data['location_id'],
-      checkIn: DateTime.parse(data['check_in']),
+      locationId: data['location_id'] ?? '',
+      checkIn:
+          DateTime.parse(data['check_in'] ?? DateTime.now().toIso8601String()),
+      status: data['status'],
+      statusUpdatedAt: data['status_updated_at'] != null
+          ? DateTime.parse(data['status_updated_at'])
+          : null,
+      statusNotes: data['status_notes'],
       metadata: data['metadata'],
     );
   }

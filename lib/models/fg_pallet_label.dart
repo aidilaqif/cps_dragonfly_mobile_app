@@ -8,13 +8,19 @@ class FGPalletLabel extends BaseLabel {
   FGPalletLabel({
     required this.plateId,
     required this.workOrder,
-    required DateTime checkIn,
     required this.rawValue,
+    required DateTime checkIn,
     Map<String, dynamic>? metadata,
+    String? status,
+    DateTime? statusUpdatedAt,
+    String? statusNotes,
   }) : super(
-    checkIn: checkIn,
-    metadata: metadata,
-  );
+          checkIn: checkIn,
+          metadata: metadata,
+          status: status,
+          statusUpdatedAt: statusUpdatedAt,
+          statusNotes: statusNotes,
+        );
 
   // Parse the scanned value into FGPalletLabel object
   static FGPalletLabel? fromScanData(String scanData) {
@@ -23,7 +29,8 @@ class FGPalletLabel extends BaseLabel {
 
     try {
       final plateId = scanData.substring(0, 11); // 2410-000008
-      final workOrder = '${scanData.substring(12, 14)}-${scanData.substring(14, 18)}-${scanData.substring(18)}'; // 10-2024-00047
+      final workOrder =
+          '${scanData.substring(12, 14)}-${scanData.substring(14, 18)}-${scanData.substring(18)}'; // 10-2024-00047
 
       return FGPalletLabel(
         rawValue: scanData,
@@ -36,6 +43,23 @@ class FGPalletLabel extends BaseLabel {
     }
   }
 
+  factory FGPalletLabel.fromMap(Map<String, dynamic> data) {
+    final label = FGPalletLabel(
+      plateId: data['plate_id'] ?? '',
+      workOrder: data['work_order'] ?? '',
+      rawValue: data['raw_value'] ?? '',
+      checkIn:
+          DateTime.parse(data['check_in'] ?? DateTime.now().toIso8601String()),
+      status: data['status'],
+      statusUpdatedAt: data['status_updated_at'] != null
+          ? DateTime.parse(data['status_updated_at'])
+          : null,
+      statusNotes: data['status_notes'],
+      metadata: data['metadata'],
+    );
+    return label;
+  }
+
   @override
   Map<String, dynamic> toMap() {
     return {
@@ -44,15 +68,5 @@ class FGPalletLabel extends BaseLabel {
       'work_order': workOrder,
       'raw_value': rawValue,
     };
-  }
-
-  factory FGPalletLabel.fromMap(Map<String, dynamic> data) {
-    return FGPalletLabel(
-      plateId: data['plate_id'],
-      workOrder: data['work_order'],
-      rawValue: data['raw_value'],
-      checkIn: DateTime.parse(data['check_in']),
-      metadata: data['metadata'],
-    );
   }
 }

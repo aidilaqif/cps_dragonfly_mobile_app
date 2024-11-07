@@ -1,5 +1,4 @@
 import 'package:postgres/postgres.dart';
-import '../models/label_types.dart';
 
 abstract class BaseLabelService<T> {
   final PostgreSQLConnection connection;

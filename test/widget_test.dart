@@ -16,7 +16,7 @@ void main() {
   });
 
   testWidgets('Basic app test', (WidgetTester tester) async {
-    await tester.pumpWidget(MyApp(connection: mockConnection));
+    await tester.pumpWidget(const MyApp());
     expect(find.text('CPS Dragonfly 4.0'), findsOneWidget);
   });
 }

@@ -2,8 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:postgres/postgres.dart';
-import 'package:intl/intl.dart';
 import '../models/fg_location_label.dart';
 import '../models/paper_roll_location_label.dart';
 import '../models/fg_pallet_label.dart';
@@ -16,47 +14,48 @@ import '../services/roll_label_service.dart';
 import '../widgets/scan_feedback_overlay.dart';
 
 class ScanCodePage extends StatefulWidget {
-  final PostgreSQLConnection connection;
-
-  const ScanCodePage({super.key, required this.connection});
+  const ScanCodePage({super.key});
 
   @override
   State<ScanCodePage> createState() => _ScanCodePageState();
 }
 
-class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver, TickerProviderStateMixin {
-  late final FGPalletLabelService _fgPalletService;
-  late final RollLabelService _rollService;
-  late final FGLocationLabelService _fgLocationService;
-  late final PaperRollLocationLabelService _paperRollLocationService;
+class _ScanCodePageState extends State<ScanCodePage>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
+  // Services
+  final FGPalletLabelService _fgPalletService = FGPalletLabelService();
+  final RollLabelService _rollService = RollLabelService();
+  final FGLocationLabelService _fgLocationService = FGLocationLabelService();
+  final PaperRollLocationLabelService _paperRollLocationService =
+      PaperRollLocationLabelService();
 
+  // Scanner controller
   MobileScannerController? _controller;
   bool _isScanning = false;
   bool _isProcessing = false;
   bool _isFlashOn = false;
   bool _isFrontCamera = false;
 
+  // Animation controller
   late AnimationController _animationController;
 
-  // State variables for feedback
+  // Feedback state
   String? _lastScannedCode;
   String? _feedbackMessage;
   Color _feedbackColor = Colors.green;
   Timer? _feedbackTimer;
-  Uint8List? _lastScannedImage;
   LabelType? _lastLabelType;
   DateTime _lastScanTime = DateTime.now();
-  
-  // Statistics for current scanning session
-  Map<LabelType, int> _scanStats = {
-    for (var type in LabelType.values) type: 0
+
+  // Session statistics
+  Map<LabelType, _ScanStats> _scanStats = {
+    for (var type in LabelType.values) type: _ScanStats(),
   };
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeServices();
 
     // Initialize animation controller
     _animationController = AnimationController(
@@ -78,7 +77,6 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Handle app lifecycle changes
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
@@ -96,13 +94,6 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
     }
   }
 
-  void _initializeServices() {
-    _fgPalletService = FGPalletLabelService(widget.connection);
-    _rollService = RollLabelService(widget.connection);
-    _fgLocationService = FGLocationLabelService(widget.connection);
-    _paperRollLocationService = PaperRollLocationLabelService(widget.connection);
-  }
-
   void _startScanning() {
     if (_controller != null) {
       _controller?.dispose();
@@ -113,23 +104,23 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
         _controller = MobileScannerController(
           detectionSpeed: DetectionSpeed.noDuplicates,
           returnImage: true,
-          formats: const [
-          BarcodeFormat.code128,
-          BarcodeFormat.code39,
-          BarcodeFormat.code93,
-          BarcodeFormat.codabar,
-          BarcodeFormat.ean8,
-          BarcodeFormat.ean13,
-          BarcodeFormat.upcA,
-          BarcodeFormat.upcE,
-          BarcodeFormat.qrCode,
-        ],
+          formats: [
+            BarcodeFormat.code128,
+            BarcodeFormat.code39,
+            BarcodeFormat.code93,
+            BarcodeFormat.codabar,
+            BarcodeFormat.ean8,
+            BarcodeFormat.ean13,
+            BarcodeFormat.upcA,
+            BarcodeFormat.upcE,
+            BarcodeFormat.qrCode,
+          ],
           facing: _isFrontCamera ? CameraFacing.front : CameraFacing.back,
           torchEnabled: _isFlashOn,
         );
         _isScanning = true;
         _scanStats = {
-          for (var type in LabelType.values) type: 0
+          for (var type in LabelType.values) type: _ScanStats(),
         };
       });
     } on Exception catch (e) {
@@ -140,20 +131,138 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
     }
   }
 
-  void _showFeedback(String message, Color color, {Duration duration = const Duration(seconds: 2)}) {
+  Future<void> _processScannedCode(String value) async {
+    if (!mounted) return;
+
+    // Prevent duplicate scans and processing while busy
+    if (_isProcessing ||
+        (_lastScannedCode == value &&
+            DateTime.now().difference(_lastScanTime).inMilliseconds < 1000)) {
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _lastScannedCode = value;
+      _lastScanTime = DateTime.now();
+    });
+
+    try {
+      // Debug logging
+      _logScanDetails(value);
+
+      // Clean the value
+      String cleanValue = value.trim().toUpperCase();
+
+      // Try to create and save the appropriate label type
+      final label = await _createAndSaveLabel(cleanValue);
+
+      if (!mounted) return;
+
+      if (label != null) {
+        final labelType = _getLabelType(label);
+        _lastLabelType = labelType;
+
+        setState(() {
+          _scanStats[labelType]!.incrementSuccess();
+        });
+
+        _showSuccessFeedback(label);
+        HapticFeedback.mediumImpact();
+      } else {
+        _showInvalidFormatFeedback();
+        HapticFeedback.heavyImpact();
+        setState(() {
+          if (_lastLabelType != null) {
+            _scanStats[_lastLabelType]!.incrementFailure();
+          }
+        });
+      }
+    } catch (e) {
+      print('Error processing scan: $e');
+      if (mounted) {
+        _showErrorFeedback(e);
+        HapticFeedback.heavyImpact();
+        setState(() {
+          if (_lastLabelType != null) {
+            _scanStats[_lastLabelType]!.incrementFailure();
+          }
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  void _logScanDetails(String value) {
+    print('==================== SCAN DEBUG ====================');
+    print('Raw scanned value: "$value"');
+    print('Value length: ${value.length}');
+    print('ASCII codes: ${value.codeUnits}');
+    print(
+        'Hex representation: ${value.codeUnits.map((e) => '0x${e.toRadixString(16).padLeft(2, '0')}').join(' ')}');
+    print('Individual characters:');
+    for (int i = 0; i < value.length; i++) {
+      print('Position $i: "${value[i]}" (ASCII: ${value.codeUnits[i]})');
+    }
+    print('================================================');
+  }
+
+  Future<dynamic> _createAndSaveLabel(String cleanValue) async {
+    // Try FG Pallet Label
+    final fgPallet = FGPalletLabel.fromScanData(cleanValue);
+    if (fgPallet != null) {
+      return await _fgPalletService.create(fgPallet);
+    }
+
+    // Try Roll Label
+    final roll = RollLabel.fromScanData(cleanValue);
+    if (roll != null) {
+      return await _rollService.create(roll);
+    }
+
+    // Try FG Location Label
+    final fgLocation = FGLocationLabel.fromScanData(cleanValue);
+    if (fgLocation != null) {
+      return await _fgLocationService.create(fgLocation);
+    }
+
+    // Try Paper Roll Location Label
+    final paperRollLocation = PaperRollLocationLabel.fromScanData(cleanValue);
+    if (paperRollLocation != null) {
+      return await _paperRollLocationService.create(paperRollLocation);
+    }
+
+    return null;
+  }
+
+  void _showSuccessFeedback(dynamic label) {
+    final type = _getLabelType(label);
+    final message = _getSuccessMessage(label);
+    _showFeedback('✅ $message', Colors.green);
+  }
+
+  void _showInvalidFormatFeedback() {
+    _showFeedback('❌ Invalid code format', Colors.red);
+  }
+
+  void _showErrorFeedback(dynamic error) {
+    _showFeedback(
+      '❌ Error: ${error.toString()}',
+      Colors.red,
+    );
+  }
+
+  void _showFeedback(String message, Color color,
+      {Duration duration = const Duration(seconds: 2)}) {
     setState(() {
       _feedbackMessage = message;
       _feedbackColor = color;
     });
-
-    // Vibration feedback based on the type of message
-    if (color == Colors.green) {
-      HapticFeedback.mediumImpact();
-    } else if (color == Colors.red) {
-      HapticFeedback.heavyImpact();
-    } else {
-      HapticFeedback.lightImpact();
-    }
 
     _feedbackTimer?.cancel();
     _feedbackTimer = Timer(duration, () {
@@ -165,133 +274,25 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
     });
   }
 
-  Future<void> _processScannedCode(String value, Uint8List? image) async {
-    if (!mounted) return;
-    
-    if (_isProcessing || 
-        (_lastScannedCode == value && 
-        DateTime.now().difference(_lastScanTime).inMilliseconds < 1000)) {
-      return;
+  String _getSuccessMessage(dynamic label) {
+    if (label is FGPalletLabel) {
+      return 'Scanned Pallet: ${label.plateId}';
+    } else if (label is RollLabel) {
+      return 'Scanned Roll: ${label.rollId}';
+    } else if (label is FGLocationLabel) {
+      return 'Scanned Location: ${label.locationId}';
+    } else if (label is PaperRollLocationLabel) {
+      return 'Scanned Paper Roll Location: ${label.locationId}';
     }
-
-    setState(() {
-      _isProcessing = true;
-      _lastScannedCode = value;
-      _lastScannedImage = image;
-      _lastScanTime = DateTime.now();
-    });
-
-    try {
-      // Detailed debug logging
-      print('==================== SCAN DEBUG ====================');
-      print('Raw scanned value: "$value"');
-      print('Value length: ${value.length}');
-      print('ASCII codes: ${value.codeUnits}');
-      print('Hex representation: ${value.codeUnits.map((e) => '0x${e.toRadixString(16).padLeft(2, '0')}').join(' ')}');
-      print('Individual characters:');
-      for (int i = 0; i < value.length; i++) {
-        print('Position $i: "${value[i]}" (ASCII: ${value.codeUnits[i]})');
-      }
-      
-      // Cleanup the value by trimming whitespace and converting to uppercase
-      String cleanValue = value.trim().toUpperCase();
-      print('\nCleaned value: "$cleanValue"');
-      print('Cleaned length: ${cleanValue.length}');
-      
-      // Test each label type
-      bool isValidFGLocation = RegExp(r'^[A-Z](\d{2})?$').hasMatch(cleanValue);
-      bool isValidPaperRollLocation = RegExp(r'^[A-Z]\d$').hasMatch(cleanValue);
-      
-      print('\nValidation Results:');
-      print('Is valid FG Location? $isValidFGLocation');
-      print('Is valid Paper Roll Location? $isValidPaperRollLocation');
-      
-      // Try parsing with each label type
-      final fgLocation = FGLocationLabel.fromScanData(cleanValue);
-      final paperRollLocation = PaperRollLocationLabel.fromScanData(cleanValue);
-      final fgPallet = FGPalletLabel.fromScanData(cleanValue);
-      final roll = RollLabel.fromScanData(cleanValue);
-      
-      print('\nParse Results:');
-      print('FG Location parse: ${fgLocation != null ? 'Success' : 'Failed'}');
-      print('Paper Roll Location parse: ${paperRollLocation != null ? 'Success' : 'Failed'}');
-      print('FG Pallet parse: ${fgPallet != null ? 'Success' : 'Failed'}');
-      print('Roll parse: ${roll != null ? 'Success' : 'Failed'}');
-      print('================================================');
-
-      final labelType = await _saveLabelToDatabase(cleanValue);
-      
-      if (!mounted) return;
-      
-      if (labelType != null) {
-        _lastLabelType = labelType;
-        setState(() {
-          _scanStats[labelType] = (_scanStats[labelType] ?? 0) + 1;
-        });
-
-        _showFeedback(
-          '✅ ${_getLabelTypeName(labelType)} scanned',
-          Colors.green,
-        );
-      } else {
-        _showFeedback(
-          '❌ Invalid code format', 
-          Colors.red,
-        );
-      }
-    } catch (e) {
-      print('Error processing scan: $e');
-      if (mounted) {
-        _showFeedback(
-          '❌ Error: ${e.toString()}', 
-          Colors.red,
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
-    }
+    return 'Label scanned successfully';
   }
 
-
-  Future<LabelType?> _saveLabelToDatabase(String value) async {
-    try {
-      // Try FG Pallet Label
-      final fgPalletLabel = FGPalletLabel.fromScanData(value);
-      if (fgPalletLabel != null) {
-        await _fgPalletService.create(fgPalletLabel);
-        return LabelType.fgPallet;
-      }
-
-      // Try Roll Label
-      final rollLabel = RollLabel.fromScanData(value);
-      if (rollLabel != null) {
-        await _rollService.create(rollLabel);
-        return LabelType.roll;
-      }
-
-      // Try FG Location Label
-      final fgLocationLabel = FGLocationLabel.fromScanData(value);
-      if (fgLocationLabel != null) {
-        await _fgLocationService.create(fgLocationLabel);
-        return LabelType.fgLocation;
-      }
-
-      // Try Paper Roll Location Label
-      final paperRollLocationLabel = PaperRollLocationLabel.fromScanData(value);
-      if (paperRollLocationLabel != null) {
-        await _paperRollLocationService.create(paperRollLocationLabel);
-        return LabelType.paperRollLocation;
-      }
-
-      return null;
-    } catch (e) {
-      print('Error saving label: $e');
-      rethrow;
-    }
+  LabelType _getLabelType(dynamic label) {
+    if (label is FGPalletLabel) return LabelType.fgPallet;
+    if (label is RollLabel) return LabelType.roll;
+    if (label is FGLocationLabel) return LabelType.fgLocation;
+    if (label is PaperRollLocationLabel) return LabelType.paperRollLocation;
+    throw ArgumentError('Unknown label type');
   }
 
   void _stopScanning() {
@@ -299,15 +300,14 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
       _controller?.dispose();
       _controller = null;
     }
-    
+
     if (mounted) {
       setState(() {
         _isScanning = false;
         _lastScannedCode = null;
-        _lastScannedImage = null;
         _lastLabelType = null;
       });
-      
+
       _showScanSummary();
     }
   }
@@ -326,54 +326,125 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
             const Text('Scan Summary'),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ...LabelType.values.map((type) => Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _getLabelTypeColor(type).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  _getLabelTypeIcon(type),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _getLabelTypeName(type),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '${_scanStats[type]} scan${_scanStats[type] != 1 ? 's' : ''}',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            )),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...LabelType.values.map((type) => _buildScanStatCard(type)),
+              const SizedBox(height: 16),
+              _buildTotalStats(),
+            ],
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _startScanning();
+            },
+            child: const Text('New Session'),
+          ),
         ],
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+      ),
+    );
+  }
+
+  Widget _buildScanStatCard(LabelType type) {
+    final stats = _scanStats[type]!;
+    final successRate =
+        stats.total == 0 ? 0 : (stats.successful / stats.total * 100);
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: Icon(
+          _getLabelTypeIcon(type),
+          color: _getLabelTypeColor(type),
         ),
+        title: Text(_getLabelTypeName(type)),
+        subtitle: Text('Success rate: ${successRate.toStringAsFixed(1)}%'),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${stats.successful}/${stats.total}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'Failed: ${stats.failed}',
+              style: TextStyle(
+                color: Colors.red[400],
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTotalStats() {
+    int totalScans = 0;
+    int totalSuccessful = 0;
+    int totalFailed = 0;
+
+    _scanStats.values.forEach((stats) {
+      totalScans += stats.total;
+      totalSuccessful += stats.successful;
+      totalFailed += stats.failed;
+    });
+
+    final successRate =
+        totalScans == 0 ? 0 : (totalSuccessful / totalScans * 100);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Session Summary',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildStatRow('Total Scans', totalScans),
+          _buildStatRow('Successful', totalSuccessful, Colors.green),
+          _buildStatRow('Failed', totalFailed, Colors.red),
+          _buildStatRow('Success Rate', '$successRate%'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(String label, dynamic value, [Color? valueColor]) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(
+            value.toString(),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: valueColor,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -434,13 +505,14 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.white24,
             shape: BoxShape.circle,
           ),
           child: IconButton(
             icon: Icon(icon, color: Colors.white),
             onPressed: onPressed,
+            tooltip: label,
           ),
         ),
         const SizedBox(height: 4),
@@ -467,7 +539,8 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: (_isScanning ? Colors.red : Colors.green).withOpacity(0.3),
+                color:
+                    (_isScanning ? Colors.red : Colors.green).withOpacity(0.3),
                 spreadRadius: 2,
                 blurRadius: 8,
               ),
@@ -508,9 +581,7 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
               height: 250,
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: _isProcessing 
-                      ? Colors.orange 
-                      : Colors.white,
+                  color: _isProcessing ? Colors.orange : Colors.white,
                   width: 3,
                 ),
                 borderRadius: BorderRadius.circular(20),
@@ -536,7 +607,6 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
               ),
             ),
           ),
-          // Scan lines animation
           if (!_isProcessing) _buildScanAnimation(),
         ],
       ),
@@ -554,6 +624,9 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
             return CustomPaint(
               painter: ScanLinePainter(
                 progress: _animationController.value,
+                color: _lastLabelType != null
+                    ? _getLabelTypeColor(_lastLabelType!)
+                    : Colors.green,
               ),
             );
           },
@@ -582,70 +655,104 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Session Stats',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...LabelType.values.map((type) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  _getLabelTypeIcon(type),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${_scanStats[type]}',
+            Row(
+              children: [
+                const Icon(
+                  Icons.analytics,
+                  color: Colors.white,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Session Stats',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _getTotalScans().toString(),
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 14,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _getLabelTypeName(type),
-                    style: TextStyle(
-                      color: Colors.grey[300],
-                      fontSize: 12,
-                    ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...LabelType.values.map((type) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _getLabelTypeIcon(type),
+                        color: _getLabelTypeColor(type),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${_scanStats[type]!.successful}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _getLabelTypeName(type),
+                        style: TextStyle(
+                          color: Colors.grey[300],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            )),
+                )),
           ],
         ),
       ),
     );
   }
 
+  int _getTotalScans() {
+    return _scanStats.values.fold(0, (sum, stats) => sum + stats.total);
+  }
 
-  Icon _getLabelTypeIcon(LabelType type) {
+  IconData _getLabelTypeIcon(LabelType type) {
     switch (type) {
       case LabelType.fgPallet:
-        return const Icon(Icons.inventory_2, color: Colors.blue);
+        return Icons.inventory_2;
       case LabelType.roll:
-        return const Icon(Icons.rotate_right, color: Colors.green);
+        return Icons.rotate_right;
       case LabelType.fgLocation:
-        return const Icon(Icons.location_on, color: Colors.orange);
+        return Icons.location_on;
       case LabelType.paperRollLocation:
-        return const Icon(Icons.location_searching, color: Colors.purple);
+        return Icons.location_searching;
     }
   }
 
   String _getLabelTypeName(LabelType type) {
     switch (type) {
       case LabelType.fgPallet:
-        return 'FG Pallet Label';
+        return 'FG Pallet';
       case LabelType.roll:
-        return 'Roll Label';
+        return 'Roll';
       case LabelType.fgLocation:
-        return 'FG Location Label';
+        return 'FG Location';
       case LabelType.paperRollLocation:
-        return 'Paper Roll Location Label';
+        return 'Paper Roll Location';
     }
   }
 
@@ -717,22 +824,7 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
                 ),
               ),
               const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: _startScanning,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Start Scanning'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Theme.of(context).primaryColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 32,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                ),
-              ),
+              _buildMainButton(),
             ],
           ),
         ),
@@ -745,12 +837,11 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
           controller: _controller!,
           onDetect: (capture) {
             final List<Barcode> barcodes = capture.barcodes;
-            final Uint8List? image = capture.image;
             if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-              _processScannedCode(barcodes.first.rawValue!, image);
+              _processScannedCode(barcodes.first.rawValue!);
             }
           },
-          errorBuilder: (context, error, child){
+          errorBuilder: (context, error, child) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -762,15 +853,15 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
-                    onPressed: (){
+                    onPressed: () {
                       _stopScanning();
                       _startScanning();
                     },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),
-                  )
+                  ),
                 ],
-              )
+              ),
             );
           },
         ),
@@ -792,21 +883,32 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
   }
 }
 
-// Custom painter for scan line animation
+class _ScanStats {
+  int successful = 0;
+  int failed = 0;
+
+  int get total => successful + failed;
+
+  void incrementSuccess() => successful++;
+  void incrementFailure() => failed++;
+}
+
 class ScanLinePainter extends CustomPainter {
   final double progress;
+  final Color color;
 
-  ScanLinePainter({required this.progress});
+  ScanLinePainter({
+    required this.progress,
+    required this.color,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.green.withOpacity(0.5)
+      ..color = color.withOpacity(0.5)
       ..strokeWidth = 2;
 
-    // Calculate y position based on animation progress
     final y = size.height * progress;
-  
     final path = Path()
       ..moveTo(0, y)
       ..lineTo(size.width, y);
@@ -816,7 +918,6 @@ class ScanLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(ScanLinePainter oldDelegate) {
-    return oldDelegate.progress != progress;
+    return oldDelegate.progress != progress || oldDelegate.color != color;
   }
 }
-
