@@ -15,19 +15,20 @@ class ApiService {
   Future<bool> createItem(
       String labelId, String labelType, Map<String, dynamic> details) async {
     try {
-      print('Creating item:'); // Debug logs
-      print('Label ID: $labelId');
-      print('Label Type: $labelType');
-      print('Details: ${json.encode(details)}');
-      print('URL: $baseUrl/items');
+      final locationId = details.remove('location_id');
+      if (locationId == null) {
+        throw Exception('Location ID is required');
+      }
 
       final requestBody = {
         'label_id': labelId,
         'label_type': labelType,
+        'location_id': locationId,
         'details': details,
       };
 
-      print('Request body: ${json.encode(requestBody)}'); // Debug log
+      print('Creating item with data:');
+      print(json.encode(requestBody));
 
       final response = await http.post(
         Uri.parse('$baseUrl/items'),
@@ -35,22 +36,21 @@ class ApiService {
         body: json.encode(requestBody),
       );
 
-      print('Response status code: ${response.statusCode}'); // Debug log
-      print('Response body: ${response.body}'); // Debug log
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
-      if (response.statusCode != 201) {
-        throw Exception(
-            'Server returned status code: ${response.statusCode}, body: ${response.body}');
+      if (response.statusCode == 201) {
+        return true;
       }
-
-      return true;
+      throw Exception(
+          'Server returned status code: ${response.statusCode}, body: ${response.body}');
     } catch (e) {
-      print('Error in createItem: $e'); // Debug log
-      rethrow; // Rethrow to preserve the original error
+      print('Error in createItem: $e');
+      rethrow;
     }
   }
 
-  Future<bool> checkItemExists(String labelId) async {
+  Future<Map<String, dynamic>> checkItemExists(String labelId) async {
     try {
       print('Checking if item exists: $labelId'); // Debug log
       print('URL: $baseUrl/items/$labelId/exists');
@@ -64,9 +64,16 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['exists'] ?? false;
+        return {
+          'exists': data['exists'] ?? false,
+          'item': data['item'],
+        };
       }
-      return false;
+
+      return {
+        'exists': false,
+        'item': null,
+      };
     } catch (e) {
       print('Error checking item: $e'); // Debug log
       throw Exception('Error checking item: $e');
@@ -75,11 +82,11 @@ class ApiService {
 
   Future<List<Item>> fetchItems() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/export/csv'));
+      final response = await http.get(Uri.parse('$baseUrl/items'));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return (data['labels'] as List)
+        return (data['data'] as List)
             .map((item) => Item.fromJson(item))
             .toList();
       } else {

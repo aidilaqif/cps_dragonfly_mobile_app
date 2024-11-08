@@ -140,7 +140,7 @@ class HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CPS Inventory'),
+        title: const Text('CPS Dragonfly'),
         actions: [
           Stack(
             alignment: Alignment.center,

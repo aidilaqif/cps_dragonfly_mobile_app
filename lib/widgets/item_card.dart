@@ -10,6 +10,9 @@ class ItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Debug the incoming time
+    DateFormatter.debugDateTime(item.lastScanTime);
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: InkWell(
@@ -52,16 +55,20 @@ class ItemCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.access_time, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Last scan: ${DateFormatter.formatDateTime(item.lastScanTime)}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
+              if (item.lastScanTime.isNotEmpty)
+                Row(
+                  children: [
+                    const Icon(Icons.access_time, size: 16),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'Last scan: ${DateFormatter.formatDateTime(item.lastScanTime)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -93,10 +100,5 @@ class ItemCard extends StatelessWidget {
       backgroundColor: chipColor,
       padding: const EdgeInsets.symmetric(horizontal: 8),
     );
-  }
-
-  String _formatDateTime(String dateTime) {
-    final dt = DateTime.parse(dateTime);
-    return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute}';
   }
 }

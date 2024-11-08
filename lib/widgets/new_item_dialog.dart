@@ -1,7 +1,6 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import '../models/location.dart';
 import '../services/api_service.dart';
 
 class NewItemDialog extends StatefulWidget {
@@ -17,8 +16,12 @@ class NewItemDialog extends StatefulWidget {
 }
 
 class _NewItemDialogState extends State<NewItemDialog> {
+  final ApiService _apiService = ApiService();
   String? selectedType;
+  String? selectedLocation;
   final _formKey = GlobalKey<FormState>();
+  List<Location> locations = [];
+  bool isLoadingLocations = true;
 
   // Roll details
   final _codeController = TextEditingController();
@@ -34,7 +37,43 @@ class _NewItemDialogState extends State<NewItemDialog> {
   String? error;
 
   @override
+  void initState() {
+    super.initState();
+    _loadLocations();
+  }
+
+  Future<void> _loadLocations() async {
+    try {
+      final fetchedLocations = await _apiService.fetchLocations();
+      setState(() {
+        locations = fetchedLocations;
+        isLoadingLocations = false;
+      });
+    } catch (e) {
+      setState(() {
+        error = 'Error loading locations: $e';
+        isLoadingLocations = false;
+      });
+    }
+  }
+
+  List<Location> _getFilteredLocations() {
+    if (selectedType == null) return [];
+
+    return locations.where((location) {
+      if (selectedType == 'Roll') {
+        return location.typeName == 'Paper Roll Location';
+      } else if (selectedType == 'FG Pallet') {
+        return location.typeName == 'FG Location';
+      }
+      return false;
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final filteredLocations = _getFilteredLocations();
+
     return AlertDialog(
       title: const Text('New Item Details'),
       content: SingleChildScrollView(
@@ -57,10 +96,34 @@ class _NewItemDialogState extends State<NewItemDialog> {
                 onChanged: (value) {
                   setState(() {
                     selectedType = value;
+                    selectedLocation = null; // Reset location when type changes
                   });
                 },
               ),
               const SizedBox(height: 16),
+              if (selectedType != null) ...[
+                if (isLoadingLocations)
+                  const CircularProgressIndicator()
+                else
+                  DropdownButtonFormField<String>(
+                    value: selectedLocation,
+                    decoration: const InputDecoration(
+                      labelText: 'Location',
+                    ),
+                    items: filteredLocations.map((location) {
+                      return DropdownMenuItem(
+                        value: location.locationId,
+                        child: Text(location.locationId),
+                      );
+                    }).toList(),
+                    validator: (value) => value == null ? 'Required' : null,
+                    onChanged: (value) {
+                      setState(() {
+                        selectedLocation = value;
+                      });
+                    },
+                  ),
+              ],
               if (selectedType == 'Roll') ...[
                 TextFormField(
                   controller: _codeController,
@@ -135,10 +198,15 @@ class _NewItemDialogState extends State<NewItemDialog> {
     );
   }
 
-  // new_item_dialog.dart
-
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (selectedLocation == null) {
+      setState(() {
+        error = 'Please select a location';
+      });
+      return;
+    }
 
     setState(() {
       isLoading = true;
@@ -146,11 +214,11 @@ class _NewItemDialogState extends State<NewItemDialog> {
     });
 
     try {
-      final apiService = ApiService();
+      Map<String, dynamic> details = {
+        'location_id': selectedLocation,
+      };
 
-      Map<String, dynamic> details;
       if (selectedType == 'FG Pallet') {
-        // Convert string inputs to appropriate types
         final pltNumber = int.tryParse(_pltNumberController.text);
         final quantity = int.tryParse(_quantityController.text);
         final totalPieces = int.tryParse(_totalPiecesController.text);
@@ -159,25 +227,24 @@ class _NewItemDialogState extends State<NewItemDialog> {
           throw Exception('Invalid number format in one of the fields');
         }
 
-        details = {
+        details.addAll({
           'plt_number': pltNumber,
           'quantity': quantity,
-          'work_order_id': '10-2024-00047', // Add work order ID if needed
-          'total_pieces': totalPieces
-        };
-
-        print('Submitting FG Pallet with details:'); // Debug log
-        print(json.encode(details)); // Debug log
+          'work_order_id': '10-2024-00047',
+          'total_pieces': totalPieces,
+        });
       } else {
-        // Roll details handling (keep existing code)
-        details = {
+        details.addAll({
           'code': _codeController.text,
           'name': _nameController.text,
           'size_mm': int.parse(_sizeController.text),
-        };
+        });
       }
 
-      final success = await apiService.createItem(
+      print('Submitting form with details:');
+      print(json.encode(details));
+
+      final success = await _apiService.createItem(
         widget.labelId,
         selectedType!,
         details,
@@ -196,7 +263,7 @@ class _NewItemDialogState extends State<NewItemDialog> {
       setState(() {
         error = 'Error creating item: ${e.toString()}';
       });
-      print('Error details: $e'); // Debug log
+      print('Error details: $e');
     } finally {
       setState(() {
         isLoading = false;

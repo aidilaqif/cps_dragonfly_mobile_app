@@ -19,12 +19,15 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   String? error;
   late String currentStatus;
   late String currentLocation;
+  Map<String, dynamic>? palletDetails;
+  Map<String, dynamic>? rollDetails;
 
   @override
   void initState() {
     super.initState();
     currentStatus = widget.item.status;
     currentLocation = widget.item.location;
+    _fetchItemDetails();
   }
 
   Future<void> _updateStatus(String newStatus) async {
@@ -108,6 +111,32 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _fetchItemDetails() async {
+    try {
+      setState(() => isLoading = true);
+      final details = await _apiService.checkItemExists(widget.item.labelId);
+
+      if (details['exists'] == true &&
+          details['item'] != null &&
+          details['item']['details'] != null) {
+        setState(() {
+          if (widget.item.labelType == 'Roll') {
+            rollDetails = details['item']['details'] as Map<String, dynamic>;
+          } else if (widget.item.labelType == 'FG Pallet') {
+            palletDetails = details['item']['details'] as Map<String, dynamic>;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error fetching item details: $e');
+      setState(() {
+        error = e.toString();
+      });
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 
@@ -313,13 +342,132 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Roll Details',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Roll Details',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (isLoading)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
             ),
             const Divider(height: 24),
-            // Add roll-specific details here when available
-            Text('Additional roll details will be displayed here'),
+            if (rollDetails != null) ...[
+              // Roll specifications
+              Text(
+                'Specifications',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow(
+                      icon: Icons.qr_code,
+                      label: 'Code',
+                      value: rollDetails!['code'] ?? 'N/A',
+                    ),
+                    _buildDetailRow(
+                      icon: Icons.label,
+                      label: 'Name',
+                      value: rollDetails!['name'] ?? 'N/A',
+                    ),
+                    _buildDetailRow(
+                      icon: Icons.straighten,
+                      label: 'Size',
+                      value: '${rollDetails!['size_mm'] ?? 'N/A'} mm',
+                    ),
+                  ],
+                ),
+              ),
+
+              // Tracking Information
+              const SizedBox(height: 24),
+              Text(
+                'Tracking Information',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _buildTrackingInfo(
+                      icon: Icons.copy,
+                      label: 'Label ID',
+                      value: widget.item.labelId,
+                    ),
+                    const Divider(height: 16),
+                    _buildTrackingInfo(
+                      icon: Icons.location_on,
+                      label: 'Location',
+                      value: currentLocation,
+                    ),
+                    const Divider(height: 16),
+                    _buildTrackingInfo(
+                      icon: Icons.access_time,
+                      label: 'Last Updated',
+                      value: DateFormatter.formatDateTime(
+                          widget.item.lastScanTime),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Status section
+              const SizedBox(height: 24),
+              Text(
+                'Current Status',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _getStatusColor(currentStatus).withOpacity(0.5),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _getStatusIcon(currentStatus),
+                      color: _getStatusColor(currentStatus),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      currentStatus,
+                      style: TextStyle(
+                        color: _getStatusColor(currentStatus),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (!isLoading) ...[
+              const Center(
+                child: Text('No roll details available'),
+              ),
+            ],
           ],
         ),
       ),
@@ -334,16 +482,148 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Pallet Details',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Pallet Details',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (isLoading)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
             ),
             const Divider(height: 24),
-            // Add pallet-specific details here when available
-            Text('Additional pallet details will be displayed here'),
+            if (palletDetails != null) ...[
+              _buildDetailRow(
+                icon: Icons.numbers,
+                label: 'PLT Number',
+                value: '${palletDetails!['plt_number'] ?? 'N/A'}',
+              ),
+              _buildDetailRow(
+                icon: Icons.shopping_cart,
+                label: 'Quantity',
+                value: '${palletDetails!['quantity'] ?? 0} pcs',
+              ),
+              _buildDetailRow(
+                icon: Icons.assignment,
+                label: 'Work Order ID',
+                value: palletDetails!['work_order_id'] ?? 'N/A',
+              ),
+              _buildDetailRow(
+                icon: Icons.inventory_2,
+                label: 'Total Pieces',
+                value: '${palletDetails!['total_pieces'] ?? 0} pcs',
+              ),
+
+              // Calculate and show completion percentage
+              if (palletDetails!['total_pieces'] != null &&
+                  palletDetails!['quantity'] != null &&
+                  palletDetails!['total_pieces'] != 0) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Completion Progress',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: (palletDetails!['quantity'] as num) /
+                      (palletDetails!['total_pieces'] as num),
+                  backgroundColor: Colors.grey[200],
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${((palletDetails!['quantity'] as num) / (palletDetails!['total_pieces'] as num) * 100).toStringAsFixed(1)}%',
+                  style: Theme.of(context).textTheme.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+
+              // Additional metadata
+              const SizedBox(height: 24),
+              Text(
+                'Tracking Information',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _buildTrackingInfo(
+                      icon: Icons.copy,
+                      label: 'Label ID',
+                      value: widget.item.labelId,
+                    ),
+                    const Divider(height: 16),
+                    _buildTrackingInfo(
+                      icon: Icons.location_on,
+                      label: 'Location',
+                      value: currentLocation,
+                    ),
+                    const Divider(height: 16),
+                    _buildTrackingInfo(
+                      icon: Icons.access_time,
+                      label: 'Last Updated',
+                      value: DateFormatter.formatDateTime(
+                          widget.item.lastScanTime),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (!isLoading) ...[
+              const Center(
+                child: Text('No pallet details available'),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTrackingInfo({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.grey[600]),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -358,17 +638,22 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         children: [
           Icon(icon, size: 20, color: Colors.grey[600]),
           const SizedBox(width: 8),
-          Text(
-            '$label: ',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey,
-            ),
-          ),
           Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 16),
+                ),
+              ],
             ),
           ),
         ],
@@ -405,5 +690,31 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   String _formatDateTime(String dateTime) {
     final dt = DateTime.parse(dateTime);
     return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute}';
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'available':
+        return Colors.green;
+      case 'checked out':
+        return Colors.orange;
+      case 'lost':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'available':
+        return Icons.check_circle;
+      case 'checked out':
+        return Icons.shopping_cart;
+      case 'lost':
+        return Icons.error;
+      default:
+        return Icons.help;
+    }
   }
 }

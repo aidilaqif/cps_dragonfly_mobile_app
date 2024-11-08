@@ -54,7 +54,8 @@ class _ScanPageState extends State<ScanPage> {
       print('Scanned Label ID: $labelId'); // Debug log
 
       // Check if item exists
-      final exists = await _apiService.checkItemExists(labelId);
+      final result = await _apiService.checkItemExists(labelId);
+      final bool exists = result['exists'] as bool;
       print('Item exists: $exists'); // Debug log
 
       if (!exists) {

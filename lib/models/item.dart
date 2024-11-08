@@ -19,9 +19,7 @@ class Item {
       labelType: json['label_type'] ?? json['labelType'] ?? '',
       location: json['location_id'] ?? json['location'] ?? '',
       status: json['status'] ?? 'Unresolved',
-      lastScanTime: json['last_scan_time'] ??
-          json['lastScanTime'] ??
-          DateTime.now().toIso8601String(),
+      lastScanTime: json['last_scan_time'] ?? json['lastScanTime'] ?? '',
     );
   }
 }
