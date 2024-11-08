@@ -12,6 +12,67 @@ class ApiService {
   static final String baseUrl =
       dotenv.env['API_URL'] ?? 'http://localhost:3000/api';
 
+  Future<bool> createItem(
+      String labelId, String labelType, Map<String, dynamic> details) async {
+    try {
+      print('Creating item:'); // Debug logs
+      print('Label ID: $labelId');
+      print('Label Type: $labelType');
+      print('Details: ${json.encode(details)}');
+      print('URL: $baseUrl/items');
+
+      final requestBody = {
+        'label_id': labelId,
+        'label_type': labelType,
+        'details': details,
+      };
+
+      print('Request body: ${json.encode(requestBody)}'); // Debug log
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/items'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      print('Response status code: ${response.statusCode}'); // Debug log
+      print('Response body: ${response.body}'); // Debug log
+
+      if (response.statusCode != 201) {
+        throw Exception(
+            'Server returned status code: ${response.statusCode}, body: ${response.body}');
+      }
+
+      return true;
+    } catch (e) {
+      print('Error in createItem: $e'); // Debug log
+      rethrow; // Rethrow to preserve the original error
+    }
+  }
+
+  Future<bool> checkItemExists(String labelId) async {
+    try {
+      print('Checking if item exists: $labelId'); // Debug log
+      print('URL: $baseUrl/items/$labelId/exists');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/items/$labelId/exists'),
+      );
+
+      print('Response status: ${response.statusCode}'); // Debug log
+      print('Response body: ${response.body}'); // Debug log
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['exists'] ?? false;
+      }
+      return false;
+    } catch (e) {
+      print('Error checking item: $e'); // Debug log
+      throw Exception('Error checking item: $e');
+    }
+  }
+
   Future<List<Item>> fetchItems() async {
     try {
       final response = await http.get(Uri.parse('$baseUrl/export/csv'));

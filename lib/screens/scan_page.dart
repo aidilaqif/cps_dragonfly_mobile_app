@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/api_service.dart';
+import '../widgets/new_item_dialog.dart';
 
 class ScanPage extends StatefulWidget {
   final VoidCallback onScanSuccess;
@@ -50,16 +51,46 @@ class _ScanPageState extends State<ScanPage> {
         labelId = barcodeScanRes;
       }
 
-      final success = await _apiService.updateItemStatus(labelId, 'Available');
+      print('Scanned Label ID: $labelId'); // Debug log
 
-      if (success) {
-        setState(() {
-          _success = 'Successfully updated item: $labelId';
-          _error = null;
-          _isScanning = false;
-        });
+      // Check if item exists
+      final exists = await _apiService.checkItemExists(labelId);
+      print('Item exists: $exists'); // Debug log
+
+      if (!exists) {
+        // Show dialog to create new item
+        if (mounted) {
+          setState(() => _isScanning = false);
+          final result = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => NewItemDialog(labelId: labelId),
+          );
+
+          print('Dialog result: $result'); // Debug log
+
+          if (result == true) {
+            setState(() {
+              _success = 'Successfully added new item: $labelId';
+              widget.onScanSuccess();
+            });
+          }
+        }
+      } else {
+        // Update existing item status
+        final success =
+            await _apiService.updateItemStatus(labelId, 'Available');
+        print('Update status result: $success'); // Debug log
+
+        if (success) {
+          setState(() {
+            _success = 'Successfully updated item: $labelId';
+            widget.onScanSuccess();
+          });
+        }
       }
     } catch (e) {
+      print('Error in scan detection: $e'); // Debug log
       setState(() {
         _error = 'Error: $e';
         _success = null;
@@ -67,12 +98,6 @@ class _ScanPageState extends State<ScanPage> {
     } finally {
       setState(() => _isLoading = false);
     }
-  }
-
-  @override
-  void dispose() {
-    _scannerController.dispose();
-    super.dispose();
   }
 
   @override
