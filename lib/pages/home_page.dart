@@ -11,7 +11,6 @@ import '../services/roll_label_service.dart';
 import '../services/fg_location_label_service.dart';
 import '../services/paper_roll_location_label_service.dart';
 import '../widgets/scan_item_card.dart';
-import '../widgets/date_range_selector.dart';
 import '../widgets/label_type_filter.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_state.dart';
@@ -34,11 +33,10 @@ class _HomePageState extends State<HomePage> {
 
   // State variables
   bool _isLoading = true;
+  bool _isFilterExpanded = false;
   String? _error;
   Map<LabelType, List<dynamic>> _labelData = {};
-  Map<LabelType, int> _labelCounts = {}; // Added this line
-  String _searchQuery = '';
-  DateTimeRange? _selectedDateRange;
+  Map<LabelType, int> _labelCounts = {};
   List<LabelType> _selectedTypes = LabelType.values.toList();
 
   @override
@@ -59,37 +57,25 @@ class _HomePageState extends State<HomePage> {
 
       // Add futures based on selected types
       if (_selectedTypes.contains(LabelType.fgPallet)) {
-        final future = _fgPalletService.list(
-          startDate: _selectedDateRange?.start,
-          endDate: _selectedDateRange?.end,
-        );
+        final future = _fgPalletService.list();
         futures.add(future);
         typeToFuture[LabelType.fgPallet] = future;
       }
 
       if (_selectedTypes.contains(LabelType.roll)) {
-        final future = _rollService.list(
-          startDate: _selectedDateRange?.start,
-          endDate: _selectedDateRange?.end,
-        );
+        final future = _rollService.list();
         futures.add(future);
         typeToFuture[LabelType.roll] = future;
       }
 
       if (_selectedTypes.contains(LabelType.fgLocation)) {
-        final future = _fgLocationService.list(
-          startDate: _selectedDateRange?.start,
-          endDate: _selectedDateRange?.end,
-        );
+        final future = _fgLocationService.list();
         futures.add(future);
         typeToFuture[LabelType.fgLocation] = future;
       }
 
       if (_selectedTypes.contains(LabelType.paperRollLocation)) {
-        final future = _paperRollLocationService.list(
-          startDate: _selectedDateRange?.start,
-          endDate: _selectedDateRange?.end,
-        );
+        final future = _paperRollLocationService.list();
         futures.add(future);
         typeToFuture[LabelType.paperRollLocation] = future;
       }
@@ -99,7 +85,7 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _labelData = {};
-        _labelCounts = {}; // Make sure this variable is defined in your state
+        _labelCounts = {};
 
         var index = 0;
         if (_selectedTypes.contains(LabelType.fgPallet)) {
@@ -132,33 +118,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  List<dynamic> _getFilteredLabels(LabelType type) {
-    final labels = _labelData[type] ?? [];
-
-    if (_searchQuery.isEmpty) {
-      return labels;
-    }
-
-    final filtered = labels.where((label) {
-      final query = _searchQuery.toLowerCase();
-
-      if (label is FGPalletLabel) {
-        return label.plateId.toLowerCase().contains(query) ||
-            label.workOrder.toLowerCase().contains(query) ||
-            label.rawValue.toLowerCase().contains(query);
-      } else if (label is RollLabel) {
-        return label.rollId.toLowerCase().contains(query);
-      } else if (label is FGLocationLabel || label is PaperRollLocationLabel) {
-        return (label as dynamic).locationId.toLowerCase().contains(query);
-      }
-      return false;
-    }).toList();
-    return filtered;
-  }
-
   Widget _buildFilterSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360; // Breakpoint for small screens
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: const BorderRadius.vertical(
@@ -174,55 +140,112 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildFilterHeader(),
-          const SizedBox(height: 16),
-          DateRangeSelector(
-            selectedRange: _selectedDateRange,
-            onRangeSelected: (range) {
-              setState(() => _selectedDateRange = range);
-              _loadData();
+          InkWell(
+            onTap: () {
+              setState(() {
+                _isFilterExpanded = !_isFilterExpanded;
+              });
             },
-            onClearRange: () {
-              setState(() => _selectedDateRange = null);
-              _loadData();
-            },
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: isSmallScreen ? 8 : 12,
+              ),
+              child: _buildFilterHeader(isSmallScreen),
+            ),
           ),
-          const SizedBox(height: 16),
-          _buildSearchField(),
-          const SizedBox(height: 16),
-          LabelTypeFilter(
-            selectedTypes: _selectedTypes,
-            onTypesChanged: (types) {
-              setState(() => _selectedTypes = types);
-              _loadData();
-            },
-            typeCounts: _labelCounts,
+          ClipRect(
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 300),
+              offset: _isFilterExpanded ? Offset.zero : const Offset(0, -1),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                opacity: _isFilterExpanded ? 1.0 : 0.0,
+                child: _isFilterExpanded
+                    ? Padding(
+                        padding: EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          bottom: 16,
+                          top: isSmallScreen ? 4 : 8,
+                        ),
+                        child: LabelTypeFilter(
+                          selectedTypes: _selectedTypes,
+                          onTypesChanged: (types) {
+                            setState(() => _selectedTypes = types);
+                            _loadData();
+                          },
+                          typeCounts: _labelCounts,
+                          compactMode: isSmallScreen,
+                        ),
+                      )
+                    : const SizedBox(height: 0),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFilterHeader() {
+  Widget _buildFilterHeader(bool isSmallScreen) {
+    final total = _labelCounts.values.fold(0, (sum, count) => sum + count);
+
     return Row(
       children: [
         Icon(
           Icons.filter_list,
           color: Theme.of(context).primaryColor,
+          size: isSmallScreen ? 20 : 24,
         ),
         const SizedBox(width: 8),
-        Text(
-          'Filter Scan History',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).primaryColor,
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                'Filter Labels',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 16 : 18,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).primaryColor,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                _isFilterExpanded ? Icons.expand_less : Icons.expand_more,
+                color: Theme.of(context).primaryColor,
+                size: isSmallScreen ? 20 : 24,
+              ),
+            ],
           ),
         ),
-        const Spacer(),
-        _buildTotalCount(),
+        const SizedBox(width: 8),
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isSmallScreen ? 8 : 12,
+            vertical: isSmallScreen ? 4 : 6,
+          ),
+          decoration: BoxDecoration(
+            color: Theme.of(context).primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isSmallScreen) const Text('Total: '),
+              Text(
+                total.toString(),
+                style: TextStyle(
+                  color: Theme.of(context).primaryColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isSmallScreen ? 12 : 14,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -245,44 +268,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSearchField() {
-    return TextField(
-      onChanged: (value) => setState(() => _searchQuery = value),
-      decoration: InputDecoration(
-        hintText: 'Search labels...',
-        prefixIcon: Icon(
-          Icons.search,
-          color: Theme.of(context).primaryColor,
-        ),
-        suffixIcon: _searchQuery.isNotEmpty
-            ? IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: () => setState(() => _searchQuery = ''),
-              )
-            : null,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).primaryColor.withOpacity(0.5),
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).primaryColor,
-            width: 2,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildScanItem(dynamic label) {
-
-    final title = _getLabelTitle(label);
-    final subtitle = _getLabelSubtitle(label);
-    final details = _getLabelDetails(label);
-
     if (label is RollLabel) {
       return ScanItemCard(
         title: 'Roll ID: ${label.rollId}',
@@ -290,7 +276,7 @@ class _HomePageState extends State<HomePage> {
         details: 'Sequence: ${label.sequenceNumber}',
         checkIn: label.checkIn,
         labelType: LabelType.roll,
-        onTap: () => _showScanDetails(label),
+        onTap: () => _showLabelDetails(label),
       );
     }
 
@@ -301,73 +287,69 @@ class _HomePageState extends State<HomePage> {
         details: 'Raw Value: ${label.rawValue}',
         checkIn: label.checkIn,
         labelType: LabelType.fgPallet,
-        onTap: () => _showScanDetails(label),
+        onTap: () => _showLabelDetails(label),
       );
     }
 
     if (label is FGLocationLabel) {
-
       return ScanItemCard(
-        title: label.locationId.isNotEmpty
-            ? 'Location: ${label.locationId}'
-            : 'Location: N/A',
+        title: 'Location: ${label.locationId}',
         subtitle: 'Area Type: ${label.areaType}',
         details: null,
         checkIn: label.checkIn,
         labelType: LabelType.fgLocation,
-        onTap: () => _showScanDetails(label),
+        onTap: () => _showLabelDetails(label),
       );
     }
 
     if (label is PaperRollLocationLabel) {
-
-      final locationText = label.locationId.isNotEmpty
-          ? 'Location: ${label.locationId}'
-          : 'Location: N/A';
-      final rowText =
-          label.rowNumber.isNotEmpty ? 'Row: ${label.rowNumber}' : 'Row: N/A';
-      final positionText = label.positionNumber.isNotEmpty
-          ? 'Position: ${label.positionNumber}'
-          : null;
-
       return ScanItemCard(
-        title: locationText,
-        subtitle: rowText,
-        details: positionText,
+        title: 'Location: ${label.locationId}',
+        subtitle: 'Row: ${label.rowNumber}',
+        details: 'Position: ${label.positionNumber}',
         checkIn: label.checkIn,
         labelType: LabelType.paperRollLocation,
-        onTap: () => _showScanDetails(label),
+        onTap: () => _showLabelDetails(label),
       );
     }
 
-    return ScanItemCard(
-      title: title,
-      subtitle: subtitle,
-      details: details,
-      checkIn: label.checkIn,
-      labelType: _getLabelTypeForScan(label),
-      onTap: () => _showScanDetails(label),
-    );
+    return const SizedBox.shrink();
   }
 
+  // Update _buildLabelSection to be responsive
   Widget _buildLabelSection(LabelType type) {
-    final filteredLabels = _getFilteredLabels(type);
-    if (filteredLabels.isEmpty) return const SizedBox.shrink();
+    final labels = _labelData[type] ?? [];
+    if (labels.isEmpty) return const SizedBox.shrink();
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(
+        bottom: isSmallScreen ? 8 : 16,
+        top: isSmallScreen ? 4 : 8,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSectionHeader(type, filteredLabels.length),
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: screenWidth * 0.04,
+              vertical: isSmallScreen ? 4 : 8,
+            ),
+            child: _buildSectionHeader(type, labels.length, isSmallScreen),
+          ),
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: filteredLabels.length,
+            itemCount: labels.length,
             itemBuilder: (context, index) {
-              final label = filteredLabels[index];
+              final label = labels[index];
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: EdgeInsets.symmetric(
+                  horizontal: screenWidth * 0.02,
+                  vertical: isSmallScreen ? 2 : 4,
+                ),
                 child: _buildScanItem(label),
               );
             },
@@ -377,125 +359,189 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSectionHeader(LabelType type, int count) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: _getLabelTypeColor(type).withOpacity(0.1),
-            child: Icon(
-              _getLabelTypeIcon(type),
-              color: _getLabelTypeColor(type),
-            ),
+  Widget _buildSectionHeader(LabelType type, int count, bool isSmallScreen) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: isSmallScreen ? 16 : 20,
+          backgroundColor: _getLabelTypeColor(type).withOpacity(0.1),
+          child: Icon(
+            _getLabelTypeIcon(type),
+            color: _getLabelTypeColor(type),
+            size: isSmallScreen ? 16 : 20,
           ),
-          const SizedBox(width: 12),
-          Text(
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
             _getLabelTypeName(type),
-            style: const TextStyle(
-              fontSize: 18,
+            style: TextStyle(
+              fontSize: isSmallScreen ? 16 : 18,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: _getLabelTypeColor(type).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              count.toString(),
-              style: TextStyle(
-                color: _getLabelTypeColor(type),
-                fontWeight: FontWeight.bold,
-              ),
+        ),
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isSmallScreen ? 8 : 12,
+            vertical: isSmallScreen ? 4 : 6,
+          ),
+          decoration: BoxDecoration(
+            color: _getLabelTypeColor(type).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            count.toString(),
+            style: TextStyle(
+              color: _getLabelTypeColor(type),
+              fontWeight: FontWeight.bold,
+              fontSize: isSmallScreen ? 12 : 14,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   void _showLabelDetails(dynamic label) {
+    final size = MediaQuery.of(context).size;
+    final isSmallScreen = size.width < 360;
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              _getLabelTypeIcon(label),
-              color: _getLabelTypeColor(label),
-            ),
-            const SizedBox(width: 8),
-            Text(_getDialogTitle(label)),
-          ],
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
         ),
-        content: SingleChildScrollView(
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: isSmallScreen ? 16 : 24,
+          vertical: isSmallScreen ? 24 : 40,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 500,
+            maxHeight: size.height * 0.8,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildDetailRow(
-                'Scan Time',
-                DateFormat('dd/MM/yyyy HH:mm:ss').format(label.checkIn),
+              _buildDetailHeader(label, isSmallScreen),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildMainDetails(label, isSmallScreen),
+                      SizedBox(height: isSmallScreen ? 16 : 24),
+                      _buildStatusSection(label, isSmallScreen),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 8),
-              if (label is FGPalletLabel) ...[
-                _buildDetailRow('Plate ID', label.plateId),
-                _buildDetailRow('Work Order', label.workOrder),
-                _buildDetailRow('Raw Value', label.rawValue),
-              ] else if (label is RollLabel) ...[
-                _buildDetailRow('Roll ID', label.rollId),
-                _buildDetailRow('Batch Number', label.batchNumber),
-                _buildDetailRow('Sequence Number', label.sequenceNumber),
-              ] else if (label is FGLocationLabel) ...[
-                _buildDetailRow('Location ID', label.locationId),
-                _buildDetailRow('Area Type', label.areaType),
-              ] else if (label is PaperRollLocationLabel) ...[
-                _buildDetailRow('Location ID', label.locationId),
-                _buildDetailRow('Row', label.rowNumber),
-                _buildDetailRow('Position', label.positionNumber),
-              ],
-              const SizedBox(height: 16),
-              _buildStatusSection(label),
+              _buildDetailActions(label, isSmallScreen),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+      ),
+    );
+  }
+
+  Widget _buildDetailHeader(dynamic label, bool isSmallScreen) {
+    return Container(
+      padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
+      decoration: BoxDecoration(
+        color:
+            _getLabelTypeColor(_getLabelTypeForLabel(label)).withOpacity(0.1),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _getLabelTypeIcon(_getLabelTypeForLabel(label)),
+            color: _getLabelTypeColor(_getLabelTypeForLabel(label)),
+            size: isSmallScreen ? 24 : 28,
           ),
-          TextButton(
-            onPressed: () => _showExportDialog(label),
-            child: const Text('Export'),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _getDialogTitle(label),
+              style: TextStyle(
+                fontSize: isSmallScreen ? 18 : 20,
+                fontWeight: FontWeight.bold,
+                color: _getLabelTypeColor(_getLabelTypeForLabel(label)),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.pop(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            iconSize: isSmallScreen ? 20 : 24,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildMainDetails(dynamic label, bool isSmallScreen) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDetailRow(
+          'Scan Time',
+          DateFormat('dd/MM/yyyy HH:mm:ss').format(label.checkIn),
+          isSmallScreen,
+        ),
+        const SizedBox(height: 8),
+        if (label is FGPalletLabel) ...[
+          _buildDetailRow('Plate ID', label.plateId, isSmallScreen),
+          _buildDetailRow('Work Order', label.workOrder, isSmallScreen),
+          _buildDetailRow('Raw Value', label.rawValue, isSmallScreen),
+        ] else if (label is RollLabel) ...[
+          _buildDetailRow('Roll ID', label.rollId, isSmallScreen),
+          _buildDetailRow('Batch Number', label.batchNumber, isSmallScreen),
+          _buildDetailRow(
+              'Sequence Number', label.sequenceNumber, isSmallScreen),
+        ] else if (label is FGLocationLabel) ...[
+          _buildDetailRow('Location ID', label.locationId, isSmallScreen),
+          _buildDetailRow('Area Type', label.areaType, isSmallScreen),
+        ] else if (label is PaperRollLocationLabel) ...[
+          _buildDetailRow('Location ID', label.locationId, isSmallScreen),
+          _buildDetailRow('Row', label.rowNumber, isSmallScreen),
+          _buildDetailRow('Position', label.positionNumber, isSmallScreen),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, bool isSmallScreen) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 4 : 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: isSmallScreen ? 100 : 120,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: Colors.grey[600],
+                fontSize: isSmallScreen ? 13 : 14,
               ),
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontSize: 16),
+              style: TextStyle(
+                fontSize: isSmallScreen ? 14 : 16,
+              ),
             ),
           ),
         ],
@@ -503,29 +549,29 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildStatusSection(dynamic label) {
+  Widget _buildStatusSection(dynamic label, bool isSmallScreen) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Status',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: isSmallScreen ? 14 : 16,
             ),
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               Container(
-                width: 12,
-                height: 12,
+                width: isSmallScreen ? 10 : 12,
+                height: isSmallScreen ? 10 : 12,
                 decoration: BoxDecoration(
                   color: _getStatusColor(label.status),
                   shape: BoxShape.circle,
@@ -534,17 +580,37 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(width: 8),
               Text(
                 label.status ?? 'Unknown',
-                style: const TextStyle(fontSize: 16),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 14 : 16,
+                ),
               ),
+              const Spacer(),
+              if (label.statusUpdatedAt != null)
+                Text(
+                  'Updated: ${DateFormat('dd/MM/yyyy HH:mm').format(label.statusUpdatedAt!)}',
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 11 : 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
             ],
           ),
           if (label.statusNotes != null && label.statusNotes!.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              'Notes: ${label.statusNotes}',
+              'Notes:',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: isSmallScreen ? 13 : 14,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label.statusNotes!,
               style: TextStyle(
                 color: Colors.grey[600],
-                fontSize: 14,
+                fontSize: isSmallScreen ? 13 : 14,
               ),
             ),
           ],
@@ -553,190 +619,50 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _showUpdateStatusDialog(dynamic label) async {
-    final selectedStatus = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Update Status'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final status in [
-              'Available',
-              'Checked out',
-              'Lost',
-              'Unresolved'
-            ])
-              ListTile(
-                title: Text(status),
-                leading: Radio<String>(
-                  value: status,
-                  groupValue: label.status,
-                  onChanged: (value) => Navigator.pop(context, value),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-
-    if (selectedStatus != null && selectedStatus != label.status) {
-      try {
-        setState(() => _isLoading = true);
-
-        if (label is FGPalletLabel) {
-          await _fgPalletService.updateStatus(label.plateId, selectedStatus);
-        } else if (label is RollLabel) {
-          await _rollService.updateStatus(label.rollId, selectedStatus);
-        } else if (label is FGLocationLabel) {
-          await _fgLocationService.updateStatus(
-              label.locationId, selectedStatus);
-        } else if (label is PaperRollLocationLabel) {
-          await _paperRollLocationService.updateStatus(
-              label.locationId, selectedStatus);
-        }
-
-        _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Status updated successfully')),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error updating status: $e')),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
-      }
-    }
-  }
-
-  void _showScanDetails(dynamic label) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              _getLabelTypeIcon(label),
-              color: _getLabelTypeColor(label),
-            ),
-            const SizedBox(width: 8),
-            Text(_getDialogTitle(label)),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow(
-                'Scan Time',
-                DateFormat('dd/MM/yyyy HH:mm:ss').format(label.checkIn),
-              ),
-              const SizedBox(height: 8),
-              if (label is FGPalletLabel) ...[
-                _buildDetailRow('Plate ID', label.plateId),
-                _buildDetailRow('Work Order', label.workOrder),
-                _buildDetailRow('Raw Value', label.rawValue),
-              ] else if (label is RollLabel) ...[
-                _buildDetailRow('Roll ID', label.rollId),
-                _buildDetailRow('Batch Number', label.batchNumber),
-                _buildDetailRow('Sequence Number', label.sequenceNumber),
-              ] else if (label is FGLocationLabel) ...[
-                _buildDetailRow('Location ID', label.locationId),
-                _buildDetailRow('Area Type', label.areaType),
-              ] else if (label is PaperRollLocationLabel) ...[
-                _buildDetailRow('Location ID', label.locationId),
-                _buildDetailRow('Row', label.rowNumber),
-                _buildDetailRow('Position', label.positionNumber),
-              ],
-              const SizedBox(height: 16),
-              _buildStatusSection(label),
-            ],
-          ),
-        ),
-        actions: [
+  Widget _buildDetailActions(dynamic label, bool isSmallScreen) {
+    return Padding(
+      padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(
+              'Close',
+              style: TextStyle(
+                fontSize: isSmallScreen ? 14 : 16,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: () => _shareDetails(label),
+            icon: Icon(
+              Icons.share,
+              size: isSmallScreen ? 18 : 20,
+            ),
+            label: Text(
+              'Share',
+              style: TextStyle(
+                fontSize: isSmallScreen ? 14 : 16,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _showExportDialog(dynamic label) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Export Options'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.table_chart),
-              title: const Text('Export as Excel'),
-              onTap: () {
-                Navigator.pop(context);
-                _exportSingle(label);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.share),
-              title: const Text('Share Details'),
-              onTap: () {
-                Navigator.pop(context);
-                _shareLabelDetails(label);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _exportSingle(dynamic label) async {
-    try {
-      final labelType = _getLabelTypeForObject(label);
-
-      final exporter = ExportToExcelButton(
-        startDate: label.checkIn,
-        endDate: label.checkIn,
-        filterTypes: [labelType],
-      );
-
-      await exporter.exportData();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Export successful')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
-      }
-    }
-  }
-
-  void _shareLabelDetails(dynamic label) {
-    String details = _formatLabelDetailsForSharing(label);
+  void _shareDetails(dynamic label) {
+    final details = _formatDetailsForSharing(label);
     Share.share(details, subject: 'Label Details');
   }
 
-  String _formatLabelDetailsForSharing(dynamic label) {
+  String _formatDetailsForSharing(dynamic label) {
     final buffer = StringBuffer();
     buffer.writeln('Label Details');
     buffer.writeln('-------------');
-    buffer.writeln('Type: ${_getLabelTypeName(_getLabelTypeForObject(label))}');
+    buffer.writeln('Type: ${_getLabelTypeName(_getLabelTypeForLabel(label))}');
     buffer.writeln(
         'Scan Time: ${DateFormat('dd/MM/yyyy HH:mm:ss').format(label.checkIn)}');
 
@@ -780,12 +706,30 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  LabelType _getLabelTypeForObject(dynamic label) {
-    if (label is FGPalletLabel) return LabelType.fgPallet;
-    if (label is RollLabel) return LabelType.roll;
-    if (label is FGLocationLabel) return LabelType.fgLocation;
-    if (label is PaperRollLocationLabel) return LabelType.paperRollLocation;
-    throw ArgumentError('Unknown label type');
+  IconData _getLabelTypeIcon(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return Icons.inventory_2;
+      case LabelType.roll:
+        return Icons.rotate_right;
+      case LabelType.fgLocation:
+        return Icons.location_on;
+      case LabelType.paperRollLocation:
+        return Icons.location_searching;
+    }
+  }
+
+  Color _getLabelTypeColor(LabelType type) {
+    switch (type) {
+      case LabelType.fgPallet:
+        return Colors.blue;
+      case LabelType.roll:
+        return Colors.green;
+      case LabelType.fgLocation:
+        return Colors.orange;
+      case LabelType.paperRollLocation:
+        return Colors.purple;
+    }
   }
 
   String _getLabelTypeName(LabelType type) {
@@ -801,68 +745,12 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  IconData _getLabelTypeIcon(dynamic label) {
-    if (label is FGPalletLabel) return Icons.inventory_2;
-    if (label is RollLabel) return Icons.rotate_right;
-    if (label is FGLocationLabel) return Icons.location_on;
-    if (label is PaperRollLocationLabel) return Icons.location_searching;
-    return Icons.label;
-  }
-
-  Color _getLabelTypeColor(dynamic label) {
-    if (label is FGPalletLabel) return Colors.blue;
-    if (label is RollLabel) return Colors.green;
-    if (label is FGLocationLabel) return Colors.orange;
-    if (label is PaperRollLocationLabel) return Colors.purple;
-    return Colors.grey;
-  }
-
-  String _getLabelTitle(dynamic label) {
-
-    if (label is FGPalletLabel) {
-      return 'PLT#: ${label.plateId}';
-    } else if (label is RollLabel) {
-      return 'Roll ID: ${label.rollId}';
-    } else if (label is FGLocationLabel || label is PaperRollLocationLabel) {
-      final locationId = (label as dynamic).locationId;
-      return 'Location: $locationId';
-    }
-    return 'Unknown Label';
-  }
-
-  String _getLabelSubtitle(dynamic label) {
-
-    if (label is RollLabel) {
-      final subtitle =
-          'Batch: ${label.batchNumber}\nSequence: ${label.sequenceNumber}';
-      return subtitle;
-    } else if (label is FGPalletLabel) {
-      return 'Work Order: ${label.workOrder}';
-    } else if (label is FGLocationLabel) {
-      return 'Area Type: ${label.areaType}';
-    } else if (label is PaperRollLocationLabel) {
-      return 'Row: ${label.rowNumber}';
-    }
-    return '';
-  }
-
-  String? _getLabelDetails(dynamic label) {
-
-    if (label is FGPalletLabel) {
-      return 'Raw Value: ${label.rawValue}';
-    } else if (label is RollLabel) {
-      return 'Sequence: ${label.sequenceNumber}';
-    }
-    return null;
-  }
-
-  LabelType _getLabelTypeForScan(dynamic label) {
-
+  LabelType _getLabelTypeForLabel(dynamic label) {
     if (label is FGPalletLabel) return LabelType.fgPallet;
     if (label is RollLabel) return LabelType.roll;
     if (label is FGLocationLabel) return LabelType.fgLocation;
     if (label is PaperRollLocationLabel) return LabelType.paperRollLocation;
-    throw ArgumentError('Unknown label type for: ${label.runtimeType}');
+    throw ArgumentError('Unknown label type');
   }
 
   String _getDialogTitle(dynamic label) {
@@ -871,6 +759,44 @@ class _HomePageState extends State<HomePage> {
     if (label is FGLocationLabel) return 'FG Location Label Details';
     if (label is PaperRollLocationLabel) return 'Paper Roll Location Details';
     return 'Label Details';
+  }
+
+  Future<void> _updateStatus(
+      dynamic label, String status, String? notes) async {
+    try {
+      setState(() => _isLoading = true);
+
+      if (label is FGPalletLabel) {
+        await _fgPalletService.updateStatus(label.plateId, status,
+            notes: notes);
+      } else if (label is RollLabel) {
+        await _rollService.updateStatus(label.rollId, status, notes: notes);
+      } else if (label is FGLocationLabel) {
+        await _fgLocationService.updateStatus(label.locationId, status,
+            notes: notes);
+      } else if (label is PaperRollLocationLabel) {
+        await _paperRollLocationService.updateStatus(label.locationId, status,
+            notes: notes);
+      }
+
+      await _loadData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Status updated successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating status: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -891,41 +817,50 @@ class _HomePageState extends State<HomePage> {
     final hasData = _labelData.values.any((list) => list.isNotEmpty);
     if (!hasData) {
       return EmptyState(
-        message:
-            'No scans found${_selectedDateRange != null ? ' in selected date range' : ''}',
+        message: 'No labels found',
         icon: Icons.inventory_2,
         onRefresh: _loadData,
       );
     }
 
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Column(
-        children: [
-          _buildFilterSection(),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _loadData,
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 16),
-                children: [
-                  ...LabelType.values
-                      .where((type) => _selectedTypes.contains(type))
-                      .map(_buildLabelSection),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: ExportToExcelButton(
-                      startDate: _selectedDateRange?.start,
-                      endDate: _selectedDateRange?.end,
-                      filterTypes: _selectedTypes,
-                    ),
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final padding = MediaQuery.of(context).padding;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Column(
+          children: [
+            _buildFilterSection(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _loadData,
+                child: ListView(
+                  padding: EdgeInsets.only(
+                    bottom: padding.bottom + 16,
+                    left: screenWidth * 0.02,
+                    right: screenWidth * 0.02,
                   ),
-                ],
+                  children: [
+                    ...LabelType.values
+                        .where((type) => _selectedTypes.contains(type))
+                        .map(_buildLabelSection),
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: screenWidth * 0.04,
+                        vertical: 16,
+                      ),
+                      child: ExportToExcelButton(
+                        filterTypes: _selectedTypes,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 }
