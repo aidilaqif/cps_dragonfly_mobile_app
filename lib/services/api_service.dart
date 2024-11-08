@@ -1,169 +1,273 @@
-import 'dart:convert';
+import 'package:excel/excel.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'package:share_plus/share_plus.dart';
+import '../models/item.dart';
+import '../models/location.dart';
 
 class ApiService {
-  static final ApiService _instance = ApiService._internal();
-  factory ApiService() => _instance;
+  static final String baseUrl =
+      dotenv.env['API_URL'] ?? 'http://localhost:3000/api';
 
-  ApiService._internal();
-
-  // Base URL from environment variables
-  final String baseUrl = dotenv.env['API_URL'] ?? '';
-
-  // Headers for all requests
-  Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      };
-
-  // Generic GET request
-  Future<Map<String, dynamic>> get(String endpoint,
-      {Map<String, dynamic>? queryParams}) async {
+  Future<List<Item>> fetchItems() async {
     try {
-      // Print debug information
-      print('Making GET request to: $baseUrl$endpoint');
-      if (queryParams != null) {
-        print('Query parameters: $queryParams');
-      }
-
-      final uri =
-          Uri.parse(baseUrl + endpoint).replace(queryParameters: queryParams);
-      print('Full URL: $uri');
-
-      final response = await http
-          .get(
-        uri,
-        headers: _headers,
-      )
-          .timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('The request timed out');
-        },
-      );
-
-      print('Response status code: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      final response = await http.get(Uri.parse('$baseUrl/export/csv'));
 
       if (response.statusCode == 200) {
-        if (response.body.isEmpty) {
-          throw Exception('Empty response received from server');
-        }
-        try {
-          return json.decode(response.body);
-        } catch (e) {
-          throw Exception('Failed to parse server response: $e');
-        }
+        final data = json.decode(response.body);
+        return (data['labels'] as List)
+            .map((item) => Item.fromJson(item))
+            .toList();
       } else {
-        final errorBody = _parseErrorBody(response.body);
-        throw Exception(
-            'Server returned ${response.statusCode}: ${errorBody ?? response.reasonPhrase}');
+        throw Exception('Failed to load items: ${response.statusCode}');
       }
     } catch (e) {
-      print('API Service Error: $e');
-      if (e is TimeoutException) {
-        throw Exception(
-            'Request timed out. Please check your internet connection.');
-      }
-      if (e is http.ClientException) {
-        throw Exception(
-            'Network error: Unable to connect to server. Please check your internet connection.');
-      }
-      rethrow;
+      throw Exception('Error fetching items: $e');
     }
   }
 
-  // Generic POST request
-  Future<Map<String, dynamic>> post(
-      String endpoint, Map<String, dynamic> data) async {
+  Future<bool> updateItemStatus(String labelId, String status) async {
     try {
-      final uri = Uri.parse(baseUrl + endpoint);
-      final response = await http.post(
-        uri,
-        headers: _headers,
-        body: json.encode(data),
-      );
-
-      if (response.statusCode == 201) {
-        return json.decode(response.body);
-      } else {
-        throw _handleError(response);
-      }
-    } catch (e) {
-      throw Exception('Network error: ${e.toString()}');
-    }
-  }
-
-  // Generic PUT request
-  Future<Map<String, dynamic>> put(
-      String endpoint, Map<String, dynamic> data) async {
-    try {
-      final uri = Uri.parse(baseUrl + endpoint);
       final response = await http.put(
-        uri,
-        headers: _headers,
-        body: json.encode(data),
+        Uri.parse('$baseUrl/items/$labelId/status'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'status': status}),
       );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Error updating status: $e');
+    }
+  }
+
+  Future<bool> updateItemLocation(String labelId, String locationId) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/items/$labelId/location'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'location_id': locationId}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Error updating location: $e');
+    }
+  }
+
+  Future<List<Location>> fetchLocations() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/locations'));
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic> && data.containsKey('data')) {
+          return (data['data'] as List)
+              .map((item) => Location.fromJson(item))
+              .toList();
+        }
+        return [];
       } else {
-        throw _handleError(response);
+        throw Exception('Failed to load locations: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Network error: ${e.toString()}');
+      throw Exception('Error fetching locations: $e');
     }
   }
 
-  // Generic DELETE request
-  Future<Map<String, dynamic>> delete(String endpoint) async {
+  Future<bool> createLocation(String locationId, String typeName) async {
     try {
-      final uri = Uri.parse(baseUrl + endpoint);
-      final response = await http.delete(uri, headers: _headers);
+      final response = await http.post(
+        Uri.parse('$baseUrl/locations'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'location_id': locationId,
+          'type_name': typeName,
+        }),
+      );
+      return response.statusCode == 201;
+    } catch (e) {
+      throw Exception('Error creating location: $e');
+    }
+  }
+
+  Future<void> exportToCSV() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/export/csv'));
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final data = json.decode(response.body);
+
+        // Create a new Excel workbook
+        var excel = Excel.createExcel();
+
+        // Remove default Sheet1
+        excel.delete('Sheet1');
+
+        // Create Item sheet
+        var itemSheet = excel['Item'];
+        // Add headers
+        var itemHeaders = [
+          'Label ID',
+          'Label Type',
+          'Location',
+          'Status',
+          'Last Scan Time'
+        ];
+        for (var i = 0; i < itemHeaders.length; i++) {
+          itemSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+              .value = TextCellValue(itemHeaders[i]);
+        }
+
+        // Add item data
+        var row = 1; // Start from row 1 since headers are at row 0
+        for (var item in data['labels'] ?? []) {
+          itemSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row))
+              .value = TextCellValue(item['labelId'] ?? '');
+          itemSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row))
+              .value = TextCellValue(item['labelType'] ?? '');
+          itemSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row))
+              .value = TextCellValue(item['location'] ?? '');
+          itemSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
+              .value = TextCellValue(item['status'] ?? '');
+          itemSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
+              .value = TextCellValue(item['lastScanTime'] ?? '');
+          row++;
+        }
+
+        // Remove default Sheet1
+        excel.delete('Sheet1');
+
+        // Create Roll sheet
+        var rollSheet = excel['Roll'];
+        // Add headers
+        var rollHeaders = [
+          'Label ID',
+          'Code',
+          'Name',
+          'Size (mm)',
+          'Status',
+          'Last Scan Time'
+        ];
+        for (var i = 0; i < rollHeaders.length; i++) {
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+              .value = TextCellValue(rollHeaders[i]);
+        }
+
+        // Add roll data
+        row = 1; // Reset row counter
+        for (var roll in data['rolls'] ?? []) {
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row))
+              .value = TextCellValue(roll['labelId'] ?? '');
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row))
+              .value = TextCellValue(roll['code'] ?? '');
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row))
+              .value = TextCellValue(roll['name'] ?? '');
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
+              .value = TextCellValue(roll['size']?.toString() ?? '');
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
+              .value = TextCellValue(roll['status'] ?? '');
+          rollSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row))
+              .value = TextCellValue(roll['lastScanTime'] ?? '');
+          row++;
+        }
+
+        // Remove default Sheet1
+        excel.delete('Sheet1');
+
+        // Create FG Pallet sheet
+        var palletSheet = excel['FG Pallet'];
+        // Add headers
+        var palletHeaders = [
+          'Label ID',
+          'PLT',
+          'Quantity (pcs)',
+          'Work Order ID',
+          'Total (pcs)',
+          'Status',
+          'Last Scan Time'
+        ];
+        for (var i = 0; i < palletHeaders.length; i++) {
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+              .value = TextCellValue(palletHeaders[i]);
+        }
+
+        // Add pallet data
+        row = 1; // Reset row counter
+        for (var pallet in data['pallets'] ?? []) {
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row))
+              .value = TextCellValue(pallet['labelId'] ?? '');
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row))
+              .value = TextCellValue(pallet['pltNumber']?.toString() ?? '');
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row))
+              .value = TextCellValue(pallet['quantity']?.toString() ?? '');
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
+              .value = TextCellValue(pallet['workOrderId'] ?? '');
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
+              .value = TextCellValue(pallet['totalPieces']?.toString() ?? '');
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row))
+              .value = TextCellValue(pallet['status'] ?? '');
+          palletSheet
+              .cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: row))
+              .value = TextCellValue(pallet['lastScanTime'] ?? '');
+          row++;
+        }
+
+        // Set Item as default sheet
+        excel.setDefaultSheet('Item');
+
+        // Get the application documents directory and save
+        final directory = await getApplicationDocumentsDirectory();
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final fileName = 'CPS_Data_$timestamp.xlsx';
+        final filePath = '${directory.path}/$fileName';
+
+        // Save and get bytes
+        var fileBytes = excel.save(fileName: fileName);
+
+        if (fileBytes != null) {
+          // Create physical file
+          final file = File(filePath);
+          await file.writeAsBytes(fileBytes);
+
+          // Share the file
+          await Share.shareXFiles(
+            [XFile(filePath)],
+            subject: 'CPS Data',
+            text: 'CPS Inventory Data Export',
+          );
+
+          // Clean up
+          await file.delete();
+        } else {
+          throw Exception('Failed to generate Excel file');
+        }
       } else {
-        throw _handleError(response);
+        throw Exception('Failed to export data: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Network error: ${e.toString()}');
+      print('Export error details: $e'); // Debug print
+      throw Exception('Error exporting data: $e');
     }
   }
-
-  // Error handling
-  Exception _handleError(http.Response response) {
-    try {
-      final error = json.decode(response.body);
-      return Exception(error['message'] ?? 'Unknown error occurred');
-    } catch (e) {
-      return Exception(
-          'Error ${response.statusCode}: ${response.reasonPhrase}');
-    }
-  }
-
-  String? _parseErrorBody(String body) {
-    try {
-      final parsed = json.decode(body);
-      return parsed['message'] ?? parsed['error'];
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // API Endpoints
-  static const String fgPalletEndpoint = '/fg-pallet';
-  static const String rollEndpoint = '/roll';
-  static const String fgLocationEndpoint = '/fg-location';
-  static const String paperRollLocationEndpoint = '/paper-roll-location';
-  static const String exportEndpoint = '/exportToCSV/labels';
-}
-
-class TimeoutException implements Exception {
-  final String message;
-  TimeoutException(this.message);
-
-  @override
-  String toString() => message;
 }

@@ -16,7 +16,7 @@ void main() {
   });
 
   testWidgets('Basic app test', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const CPSApp());
     expect(find.text('CPS Dragonfly 4.0'), findsOneWidget);
   });
 }
