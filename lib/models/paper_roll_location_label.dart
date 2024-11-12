@@ -16,11 +16,21 @@ class PaperRollLocationLabel extends BaseLabel {
   String get positionNumber => locationId[1];
 
   static PaperRollLocationLabel? fromScanData(String scanData) {
-    final pattern = RegExp(r'^[A-Z][0-9]$');
-    if (!pattern.hasMatch(scanData)) return null;
+    // Clean the input
+    final cleanValue = scanData.trim().toUpperCase();
+    print('Paper Roll Location validation for: "$cleanValue"');
+    
+    // Format: Letter followed by single digit (S3)
+    final pattern = RegExp(r'^[A-Z]\d$');
+    
+    if (!pattern.hasMatch(cleanValue)) {
+      print('Paper Roll Location failed validation.');
+      print('Must be a letter followed by a single digit (e.g., S3, P2)');
+      return null;
+    }
 
     return PaperRollLocationLabel(
-      locationId: scanData,
+      locationId: cleanValue,
       checkIn: DateTime.now(),
     );
   }

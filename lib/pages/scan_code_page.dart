@@ -113,6 +113,17 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
         _controller = MobileScannerController(
           detectionSpeed: DetectionSpeed.noDuplicates,
           returnImage: true,
+          formats: const [
+          BarcodeFormat.code128,
+          BarcodeFormat.code39,
+          BarcodeFormat.code93,
+          BarcodeFormat.codabar,
+          BarcodeFormat.ean8,
+          BarcodeFormat.ean13,
+          BarcodeFormat.upcA,
+          BarcodeFormat.upcE,
+          BarcodeFormat.qrCode,
+        ],
           facing: _isFrontCamera ? CameraFacing.front : CameraFacing.back,
           torchEnabled: _isFlashOn,
         );
@@ -155,13 +166,11 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
   }
 
   Future<void> _processScannedCode(String value, Uint8List? image) async {
-    // Check if widget is still mounted before processing
     if (!mounted) return;
     
-    // Prevent processing if already handling a scan or too rapid scanning
     if (_isProcessing || 
         (_lastScannedCode == value && 
-         DateTime.now().difference(_lastScanTime).inMilliseconds < 1000)) {
+        DateTime.now().difference(_lastScanTime).inMilliseconds < 1000)) {
       return;
     }
 
@@ -173,9 +182,45 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
     });
 
     try {
-      final labelType = await _saveLabelToDatabase(value);
+      // Detailed debug logging
+      print('==================== SCAN DEBUG ====================');
+      print('Raw scanned value: "$value"');
+      print('Value length: ${value.length}');
+      print('ASCII codes: ${value.codeUnits}');
+      print('Hex representation: ${value.codeUnits.map((e) => '0x${e.toRadixString(16).padLeft(2, '0')}').join(' ')}');
+      print('Individual characters:');
+      for (int i = 0; i < value.length; i++) {
+        print('Position $i: "${value[i]}" (ASCII: ${value.codeUnits[i]})');
+      }
       
-      // Check again if widget is still mounted after async operation
+      // Cleanup the value by trimming whitespace and converting to uppercase
+      String cleanValue = value.trim().toUpperCase();
+      print('\nCleaned value: "$cleanValue"');
+      print('Cleaned length: ${cleanValue.length}');
+      
+      // Test each label type
+      bool isValidFGLocation = RegExp(r'^[A-Z](\d{2})?$').hasMatch(cleanValue);
+      bool isValidPaperRollLocation = RegExp(r'^[A-Z]\d$').hasMatch(cleanValue);
+      
+      print('\nValidation Results:');
+      print('Is valid FG Location? $isValidFGLocation');
+      print('Is valid Paper Roll Location? $isValidPaperRollLocation');
+      
+      // Try parsing with each label type
+      final fgLocation = FGLocationLabel.fromScanData(cleanValue);
+      final paperRollLocation = PaperRollLocationLabel.fromScanData(cleanValue);
+      final fgPallet = FGPalletLabel.fromScanData(cleanValue);
+      final roll = RollLabel.fromScanData(cleanValue);
+      
+      print('\nParse Results:');
+      print('FG Location parse: ${fgLocation != null ? 'Success' : 'Failed'}');
+      print('Paper Roll Location parse: ${paperRollLocation != null ? 'Success' : 'Failed'}');
+      print('FG Pallet parse: ${fgPallet != null ? 'Success' : 'Failed'}');
+      print('Roll parse: ${roll != null ? 'Success' : 'Failed'}');
+      print('================================================');
+
+      final labelType = await _saveLabelToDatabase(cleanValue);
+      
       if (!mounted) return;
       
       if (labelType != null) {
@@ -195,6 +240,7 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
         );
       }
     } catch (e) {
+      print('Error processing scan: $e');
       if (mounted) {
         _showFeedback(
           '❌ Error: ${e.toString()}', 
@@ -209,6 +255,7 @@ class _ScanCodePageState extends State<ScanCodePage> with WidgetsBindingObserver
       }
     }
   }
+
 
   Future<LabelType?> _saveLabelToDatabase(String value) async {
     try {
