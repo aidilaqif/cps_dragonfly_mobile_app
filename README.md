@@ -3,7 +3,8 @@
 ## Overview
 CPS Inventory Scanner is a Flutter-based mobile application designed for efficient inventory management in industrial settings. The app enables real-time scanning of QR codes for tracking paper rolls and finished goods pallets, with integrated location validation and status tracking.
 
-[https://github.com/aidilaqif/CPS-X-4.0_Frontend]
+## Related Repositories
+- 🖥️ [Web Dashboard Repository](https://github.com/dzker/CPS-X-4.0_Frontend)
 
 ## Features 🌟
 
