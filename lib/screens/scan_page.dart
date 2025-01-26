@@ -106,7 +106,14 @@ class _ScanPageState extends State<ScanPage> {
     return Column(
       children: [
         AppBar(
-          title: const Text('Scan Inventory Items'),
+          title: const Text('Scan Inventory Items',
+          style: TextStyle(
+            color: Colors.white,
+            fontFamily: 'Inter',
+            fontWeight: FontWeight.w600
+          ),
+          ),
+          backgroundColor: const Color(0XFF030128),
         ),
         Expanded(
           child: _isScanning

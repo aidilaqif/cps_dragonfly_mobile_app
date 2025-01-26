@@ -64,7 +64,7 @@ class _NewItemDialogState extends State<NewItemDialog> {
       if (selectedType == 'Roll') {
         return location.typeName == 'Paper Roll Location';
       } else if (selectedType == 'FG Pallet') {
-        return location.typeName == 'FG Location';
+        return location.typeName == 'FG Pallet Location';
       }
       return false;
     }).toList();

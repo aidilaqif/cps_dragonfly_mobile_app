@@ -111,14 +111,29 @@ class _LocationPageState extends State<LocationPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Locations'),
+        backgroundColor: const Color(0XFF030128),
+        title: const Text(
+          'Locations',
+          style: TextStyle(
+            color: Colors.white,
+            fontFamily: 'Inter',
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
       body: _buildBody(),
       floatingActionButton: SizedBox(
         width: 150,
         child: FloatingActionButton(
+          backgroundColor: const Color(0XFF584ADD),
           onPressed: _showAddLocationDialog,
-          child: Text('Add New Location'),
+          child: const Text(
+            'Add New Location',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
         ),
       ),
     );
@@ -130,17 +145,21 @@ class _LocationPageState extends State<LocationPage> {
     }
 
     if (error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(error!, style: const TextStyle(color: Colors.red)),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _fetchLocations,
-              child: const Text('Retry'),
-            ),
-          ],
+      return Container(
+        color: const Color(0XFFF4F4F4),
+        height: double.infinity,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(error!, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchLocations,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -156,11 +175,28 @@ class _LocationPageState extends State<LocationPage> {
       itemBuilder: (context, index) {
         final location = locations[index];
         return Card(
+          color: Colors.white,
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: ListTile(
-            leading: const Icon(Icons.location_on),
-            title: Text(location.locationId),
-            subtitle: Text(location.typeName),
+            leading: const Icon(
+              Icons.location_on,
+              color: Colors.redAccent,
+            ),
+            title: Text(
+              location.locationId,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.black,
+                fontSize: 16,
+              ),
+            ),
+            subtitle: Text(
+              location.typeName,
+              style: TextStyle(
+                  fontWeight: FontWeight.w400,
+                  color: Color(0XFF9D9DA1),
+                  fontSize: 12),
+            ),
           ),
         );
       },

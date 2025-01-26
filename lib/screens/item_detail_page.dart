@@ -232,7 +232,12 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Item Details'),
+        automaticallyImplyLeading: false,
+        backgroundColor: const Color(0XFF030128),
+        title: const Text(
+          'Item Details',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
       ),
       body: Stack(
         children: [
@@ -281,7 +286,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
               children: [
                 Text(
                   widget.item.labelId,
-                  style: Theme.of(context).textTheme.headlineSmall,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 _buildStatusChip(currentStatus),
               ],
@@ -313,7 +321,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
       elevation: 2,
       child: ListTile(
         leading: const Icon(Icons.edit_note),
-        title: const Text('Update Status'),
+        title: const Text('Update Status', style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w500,
+                  ),),
         subtitle: Text('Current: $currentStatus'),
         trailing: const Icon(Icons.arrow_forward_ios),
         onTap: _showStatusUpdateDialog,
@@ -326,7 +337,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
       elevation: 2,
       child: ListTile(
         leading: const Icon(Icons.location_on),
-        title: const Text('Update Location'),
+        title: const Text('Update Location',style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w500,
+                  ),),
         subtitle: Text('Current: $currentLocation'),
         trailing: const Icon(Icons.arrow_forward_ios),
         onTap: _showLocationUpdateDialog,
@@ -665,10 +679,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
     Color chipColor;
     switch (status.toLowerCase()) {
       case 'available':
-        chipColor = Colors.green;
+        chipColor = Color(0XFF34B57E);
         break;
       case 'checked out':
-        chipColor = Colors.orange;
+        chipColor = Colors.deepOrange;
         break;
       case 'lost':
         chipColor = Colors.red;

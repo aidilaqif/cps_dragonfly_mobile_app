@@ -18,6 +18,7 @@ class CPSApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'CPS Inventory',
       theme: ThemeData(
         primarySwatch: Colors.blue,
