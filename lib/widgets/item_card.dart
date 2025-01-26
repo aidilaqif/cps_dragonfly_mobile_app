@@ -14,6 +14,8 @@ class ItemCard extends StatelessWidget {
     DateFormatter.debugDateTime(item.lastScanTime);
 
     return Card(
+      color: Colors.white,
+      shadowColor: Color(0XFF60617029),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: InkWell(
         onTap: () {
@@ -80,10 +82,10 @@ class ItemCard extends StatelessWidget {
     Color chipColor;
     switch (status.toLowerCase()) {
       case 'available':
-        chipColor = Colors.green;
+        chipColor = Color(0XFF34B57E);
         break;
       case 'checked out':
-        chipColor = Colors.orange;
+        chipColor = Colors.deepOrange;
         break;
       case 'lost':
         chipColor = Colors.red;

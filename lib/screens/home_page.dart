@@ -140,13 +140,26 @@ class HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CPS Dragonfly'),
+        backgroundColor: const Color(0XFF030128),
+        title: const SizedBox(
+          width: 220,
+          child:  Text(
+            'CPS Dragonfly',
+            style: TextStyle(
+              color: Colors.white,
+              fontFamily: 'Inter',
+              fontWeight: FontWeight.w600
+            ),
+            ),),
         actions: [
           Stack(
             alignment: Alignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.filter_list),
+                icon: const Icon(
+                  Icons.filter_list,
+                  color: Colors.white,
+                  ),
                 onPressed: _toggleFilters,
                 tooltip: 'Toggle Filters',
               ),
@@ -172,7 +185,10 @@ class HomePageState extends State<HomePage> {
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.file_download),
+            icon: const Icon(
+              Icons.file_download,
+              color: Colors.white,
+              ),
             onPressed: isLoading ? null : _showExportDialog,
             tooltip: 'Export to CSV',
           ),
@@ -180,6 +196,10 @@ class HomePageState extends State<HomePage> {
       ),
       body: Stack(
         children: [
+          Container(
+            color: const Color(0XFFF4F4F4),
+            height: double.infinity,
+          ),
           Column(
             children: [
               FilterWidget(
